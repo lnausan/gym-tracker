@@ -1,114 +1,138 @@
-"use client"
+"use client";
 
-import { useState, useMemo } from "react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import ExerciseList from "@/components/exercise-list"
-import { PlusCircle } from "lucide-react"
-import AddExerciseDialog from "@/components/add-exercise-dialog"
-import { useLocalStorage } from "@/hooks/use-local-storage"
-import type { WorkoutPlan, Exercise, WorkoutDay } from "@/types/workout"
-import { generateInitialWorkoutPlan } from "@/lib/workout-utils"
-import ProgressTracker from "@/components/progress-tracker"
+import { useEffect, useMemo, useState } from "react";
+import { addExerciseToSupabase, getExercisesFromSupabase } from "@/lib/supabase-exercises";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import ExerciseList from "@/components/exercise-list";
+import { PlusCircle } from "lucide-react";
+import AddExerciseDialog from "@/components/add-exercise-dialog";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import type { WorkoutPlan, Exercise, WorkoutDay } from "@/types/workout";
+import { generateInitialWorkoutPlan } from "@/lib/workout-utils";
+import ProgressTracker from "@/components/progress-tracker";
 
 export default function WorkoutTracker() {
-  // Use useMemo to ensure initialWorkoutPlan is only created once
-  const initialWorkoutPlan = useMemo(() => generateInitialWorkoutPlan(), [])
-  const [workoutPlan, setWorkoutPlan] = useLocalStorage<WorkoutPlan>("workout-plan", initialWorkoutPlan)
+  const initialWorkoutPlan = useMemo(() => generateInitialWorkoutPlan(), []);
+  const [workoutPlan, setWorkoutPlan] = useLocalStorage<WorkoutPlan>("workout-plan", initialWorkoutPlan);
+  const [currentWeek, setCurrentWeek] = useState(1);
+  const [currentDay, setCurrentDay] = useState("monday");
+  const [isAddExerciseOpen, setIsAddExerciseOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  const [currentWeek, setCurrentWeek] = useState(1)
-  const [currentDay, setCurrentDay] = useState("monday")
-  const [isAddExerciseOpen, setIsAddExerciseOpen] = useState(false)
+  const daysOfWeek = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
-  const daysOfWeek = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+  useEffect(() => {
+    setMounted(true);
 
-  const handleAddExercise = (exercise: Exercise) => {
-    setWorkoutPlan((prev) => {
-      const updatedPlan = { ...prev }
-      const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] }
-      const currentDayPlan = { ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay) }
+    async function loadExercises() {
+      const data = await getExercisesFromSupabase();
+      console.log("Ejercicios cargados desde Supabase:", data);
+      // (Futuro) Puedes actualizar el estado local aquí si quieres inicializar con lo que hay en Supabase
+    }
 
-      currentDayPlan.exercises = [...currentDayPlan.exercises, exercise]
-      currentWeekPlan[currentDay as keyof typeof currentWeekPlan] = currentDayPlan
-      updatedPlan.weeks[currentWeek - 1] = currentWeekPlan
+    loadExercises();
+  }, []);
 
-      return updatedPlan
-    })
-
-    setIsAddExerciseOpen(false)
+  if (!mounted) {
+    return null;
   }
+
+  const handleAddExercise = async (exercise: Exercise) => {
+    // Guardar localmente
+    setWorkoutPlan((prev) => {
+      const updatedPlan = { ...prev };
+      const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] };
+      const currentDayPlan = { ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay) };
+
+      currentDayPlan.exercises = [...currentDayPlan.exercises, exercise];
+      currentWeekPlan[currentDay as keyof typeof currentWeekPlan] = currentDayPlan;
+      updatedPlan.weeks[currentWeek - 1] = currentWeekPlan;
+
+      return updatedPlan;
+    });
+
+    // Guardar en Supabase
+    const firstSet = exercise.sets[0];
+    await addExerciseToSupabase(
+      exercise.name,
+      exercise.sets.length,
+      firstSet?.reps || 0,
+      firstSet?.weight || 0
+    );
+
+    setIsAddExerciseOpen(false);
+  };
 
   const handleUpdateExercise = (exerciseIndex: number, updatedExercise: Exercise) => {
     setWorkoutPlan((prev) => {
-      const updatedPlan = { ...prev }
-      const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] }
-      const currentDayPlan = { ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay) }
+      const updatedPlan = { ...prev };
+      const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] };
+      const currentDayPlan = { ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay) };
 
       currentDayPlan.exercises = currentDayPlan.exercises.map((ex, idx) =>
         idx === exerciseIndex ? updatedExercise : ex,
-      )
+      );
 
-      currentWeekPlan[currentDay as keyof typeof currentWeekPlan] = currentDayPlan
-      updatedPlan.weeks[currentWeek - 1] = currentWeekPlan
+      currentWeekPlan[currentDay as keyof typeof currentWeekPlan] = currentDayPlan;
+      updatedPlan.weeks[currentWeek - 1] = currentWeekPlan;
 
-      return updatedPlan
-    })
-  }
+      return updatedPlan;
+    });
+  };
 
   const handleDeleteExercise = (exerciseIndex: number) => {
     setWorkoutPlan((prev) => {
-      const updatedPlan = { ...prev }
-      const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] }
-      const currentDayPlan = { ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay) }
+      const updatedPlan = { ...prev };
+      const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] };
+      const currentDayPlan = { ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay) };
 
-      currentDayPlan.exercises = currentDayPlan.exercises.filter((_, idx) => idx !== exerciseIndex)
+      currentDayPlan.exercises = currentDayPlan.exercises.filter((_, idx) => idx !== exerciseIndex);
 
-      currentWeekPlan[currentDay as keyof typeof currentWeekPlan] = currentDayPlan
-      updatedPlan.weeks[currentWeek - 1] = currentWeekPlan
+      currentWeekPlan[currentDay as keyof typeof currentWeekPlan] = currentDayPlan;
+      updatedPlan.weeks[currentWeek - 1] = currentWeekPlan;
 
-      return updatedPlan
-    })
-  }
+      return updatedPlan;
+    });
+  };
 
   const currentDayExercises =
-    workoutPlan.weeks[currentWeek - 1]?.[currentDay as keyof (typeof workoutPlan.weeks)[0]]?.exercises || []
+    workoutPlan.weeks[currentWeek - 1]?.[currentDay as keyof (typeof workoutPlan.weeks)[0]]?.exercises || [];
 
-  // Calculate progress for the current week
   const calculateWeekProgress = (weekIndex: number) => {
-    const week = workoutPlan.weeks[weekIndex]
-    let totalExercises = 0
-    let completedExercises = 0
+    const week = workoutPlan.weeks[weekIndex];
+    let totalExercises = 0;
+    let completedExercises = 0;
 
     Object.values(week).forEach((day: WorkoutDay) => {
       day.exercises.forEach((exercise) => {
-        totalExercises += exercise.sets.length
-        completedExercises += exercise.sets.filter((set) => set.completed).length
-      })
-    })
+        totalExercises += exercise.sets.length;
+        completedExercises += exercise.sets.filter((set) => set.completed).length;
+      });
+    });
 
-    return totalExercises > 0 ? (completedExercises / totalExercises) * 100 : 0
-  }
+    return totalExercises > 0 ? (completedExercises / totalExercises) * 100 : 0;
+  };
 
-  // Calculate overall progress
   const calculateOverallProgress = () => {
-    let totalExercises = 0
-    let completedExercises = 0
+    let totalExercises = 0;
+    let completedExercises = 0;
 
-    workoutPlan.weeks.forEach((week, index) => {
+    workoutPlan.weeks.forEach((week) => {
       Object.values(week).forEach((day: WorkoutDay) => {
         day.exercises.forEach((exercise) => {
-          totalExercises += exercise.sets.length
-          completedExercises += exercise.sets.filter((set) => set.completed).length
-        })
-      })
-    })
+          totalExercises += exercise.sets.length;
+          completedExercises += exercise.sets.filter((set) => set.completed).length;
+        });
+      });
+    });
 
-    return totalExercises > 0 ? (completedExercises / totalExercises) * 100 : 0
-  }
+    return totalExercises > 0 ? (completedExercises / totalExercises) * 100 : 0;
+  };
 
-  const weekProgress = calculateWeekProgress(currentWeek - 1)
-  const overallProgress = calculateOverallProgress()
+  const weekProgress = calculateWeekProgress(currentWeek - 1);
+  const overallProgress = calculateOverallProgress();
 
   return (
     <div className="space-y-6">
@@ -197,5 +221,5 @@ export default function WorkoutTracker() {
         onAddExercise={handleAddExercise}
       />
     </div>
-  )
+  );
 }
