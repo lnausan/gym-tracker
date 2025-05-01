@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { addExerciseToSupabase, getExercisesFromSupabase } from "@/lib/supabase-exercises";
+import {
+  addExerciseToSupabase,
+  getExercisesFromSupabase,
+} from "@/lib/supabase-exercises";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,41 +16,40 @@ import { useLocalStorage } from "@/hooks/use-local-storage";
 import type { WorkoutPlan, Exercise, WorkoutDay } from "@/types/workout";
 import { generateInitialWorkoutPlan } from "@/lib/workout-utils";
 import ProgressTracker from "@/components/progress-tracker";
-import { createClientComponentClient } from "@/lib/supabase-client";
 
 export default function WorkoutTracker() {
+  const supabase = createClientComponentClient();
   const initialWorkoutPlan = useMemo(() => generateInitialWorkoutPlan(), []);
   const [workoutPlan, setWorkoutPlan] = useLocalStorage<WorkoutPlan>("workout-plan", initialWorkoutPlan);
   const [currentWeek, setCurrentWeek] = useState(1);
   const [currentDay, setCurrentDay] = useState("monday");
   const [isAddExerciseOpen, setIsAddExerciseOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  const supabase = createClientComponentClient();
   const daysOfWeek = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
   useEffect(() => {
     setMounted(true);
 
-    async function loadExercises() {
+    const fetchUserAndData = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      if (!user) return;
+      setUserId(user.id);
 
-      const userId = user?.id;
-      if (!userId) {
-        console.error("No se pudo obtener el userId");
-        return;
-      }
-
-      const data = await getExercisesFromSupabase(userId);
+      const data = await getExercisesFromSupabase(user.id);
       console.log("Ejercicios cargados desde Supabase:", data);
-    }
+      // Futuro: inicializar estado local con estos ejercicios si se desea
+    };
 
-    loadExercises();
-  }, [supabase]);
+    fetchUserAndData();
+  }, []);
 
-  if (!mounted) return null;
+  if (!mounted) {
+    return null;
+  }
 
   const handleAddExercise = async (exercise: Exercise) => {
     setWorkoutPlan((prev) => {
@@ -61,24 +64,16 @@ export default function WorkoutTracker() {
       return updatedPlan;
     });
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const userId = user?.id;
-    if (!userId) {
-      console.error("No se pudo obtener el userId para guardar el ejercicio");
-      return;
+    if (userId) {
+      const firstSet = exercise.sets[0];
+      await addExerciseToSupabase(
+        exercise.name,
+        exercise.sets.length,
+        firstSet?.reps || 0,
+        firstSet?.weight || 0,
+        userId
+      );
     }
-
-    const firstSet = exercise.sets[0];
-    await addExerciseToSupabase(
-      exercise.name,
-      exercise.sets.length,
-      firstSet?.reps || 0,
-      firstSet?.weight || 0,
-      userId
-    );
 
     setIsAddExerciseOpen(false);
   };

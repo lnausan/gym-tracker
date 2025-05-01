@@ -1,6 +1,9 @@
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+'use client';
 
-const supabase = createClientComponentClient();
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import type { Database } from '@/types/database';
+
+const supabase = createClientComponentClient<Database>();
 
 export async function addExerciseToSupabase(
   name: string,
@@ -9,7 +12,7 @@ export async function addExerciseToSupabase(
   weight: number,
   user_id: string
 ) {
-  const { error } = await supabase.from("exercises").insert([
+  const { error } = await supabase.from('exercises').insert([
     {
       name,
       sets,
@@ -18,18 +21,18 @@ export async function addExerciseToSupabase(
       user_id,
     },
   ]);
-  if (error) console.error("Error inserting exercise:", error.message);
+  if (error) console.error('Error inserting exercise:', error.message);
 }
 
 export async function getExercisesFromSupabase(user_id: string) {
   const { data, error } = await supabase
-    .from("exercises")
-    .select("*")
-    .eq("user_id", user_id)
-    .order("created_at", { ascending: false });
+    .from('exercises')
+    .select('*')
+    .eq('user_id', user_id)
+    .order('created_at', { ascending: false });
 
   if (error) {
-    console.error("Error fetching exercises:", error.message);
+    console.error('Error fetching exercises:', error.message);
     return [];
   }
 
