@@ -1,30 +1,24 @@
-export interface WorkoutSet {
-  id: number
-  weight: number
-  reps: number
-  completed: boolean
-}
 
-export interface Exercise {
-  name: string
-  type: string
-  sets: WorkoutSet[]
-}
+export type ExerciseSet = {
+  reps: number | null;
+  weight: number | null;
+  completed: boolean;
+};
 
-export interface WorkoutDay {
-  exercises: Exercise[]
-}
+export type Exercise = {
+  name: string;
+  type: string; // agregado para resolver el error
+  sets: ExerciseSet[];
+};
 
-export interface WeekPlan {
-  monday: WorkoutDay
-  tuesday: WorkoutDay
-  wednesday: WorkoutDay
-  thursday: WorkoutDay
-  friday: WorkoutDay
-  saturday: WorkoutDay
-  sunday: WorkoutDay
-}
+export type WorkoutDay = {
+  exercises: Exercise[];
+};
 
-export interface WorkoutPlan {
-  weeks: WeekPlan[]
-}
+export type WeekPlan = {
+  [key: string]: WorkoutDay;
+};
+
+export type WorkoutPlan = {
+  weeks: WeekPlan[];
+};

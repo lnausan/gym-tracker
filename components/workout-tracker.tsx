@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -40,8 +41,27 @@ export default function WorkoutTracker() {
       setUserId(user.id);
 
       const data = await getExercisesFromSupabase(user.id);
-      console.log("Ejercicios cargados desde Supabase:", data);
-      // Futuro: inicializar estado local con estos ejercicios si se desea
+      const initialPlan = generateInitialWorkoutPlan();
+
+      data.forEach((exercise) => {
+        const ex: Exercise = {
+          name: exercise.name ?? '',
+          type: "default",
+          sets: [
+            {
+              reps: exercise.reps ?? 0,
+              weight: exercise.weight ?? 0,
+              completed: false,
+            },
+          ],
+        };
+
+        const week = initialPlan.weeks[currentWeek - 1];
+        const dayPlan = week[currentDay as keyof WeekPlan] as WorkoutDay;
+        dayPlan.exercises.push(ex);
+      });
+
+      setWorkoutPlan(initialPlan);
     };
 
     fetchUserAndData();
@@ -69,9 +89,7 @@ export default function WorkoutTracker() {
         exercise.sets.length,
         firstSet?.reps || 0,
         firstSet?.weight || 0,
-        userId,
-        currentDay,
-        currentWeek
+        userId
       );
     }
 
@@ -85,7 +103,7 @@ export default function WorkoutTracker() {
       const currentDayPlan = { ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay) };
 
       currentDayPlan.exercises = currentDayPlan.exercises.map((ex, idx) =>
-        idx === exerciseIndex ? updatedExercise : ex,
+        idx === exerciseIndex ? updatedExercise : ex
       );
 
       currentWeekPlan[currentDay as keyof typeof currentWeekPlan] = currentDayPlan;
