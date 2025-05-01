@@ -13,7 +13,7 @@ import ExerciseList from "@/components/exercise-list";
 import { PlusCircle } from "lucide-react";
 import AddExerciseDialog from "@/components/add-exercise-dialog";
 import { useLocalStorage } from "@/hooks/use-local-storage";
-import type { WorkoutPlan, Exercise, WorkoutDay } from "@/types/workout";
+import type { WorkoutPlan, Exercise, WorkoutDay, WeekPlan } from "@/types/workout";
 import { generateInitialWorkoutPlan } from "@/lib/workout-utils";
 import ProgressTracker from "@/components/progress-tracker";
 
@@ -47,18 +47,16 @@ export default function WorkoutTracker() {
     fetchUserAndData();
   }, []);
 
-  if (!mounted) {
-    return null;
-  }
+  if (!mounted) return null;
 
   const handleAddExercise = async (exercise: Exercise) => {
     setWorkoutPlan((prev) => {
       const updatedPlan = { ...prev };
-      const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] };
-      const currentDayPlan = { ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay) };
+      const currentWeekPlan: WeekPlan = updatedPlan.weeks[currentWeek - 1];
+      const currentDayPlan: WorkoutDay = { ...currentWeekPlan[currentDay as keyof WeekPlan] };
 
       currentDayPlan.exercises = [...currentDayPlan.exercises, exercise];
-      currentWeekPlan[currentDay as keyof typeof currentWeekPlan] = currentDayPlan;
+      currentWeekPlan[currentDay as keyof WeekPlan] = currentDayPlan;
       updatedPlan.weeks[currentWeek - 1] = currentWeekPlan;
 
       return updatedPlan;
@@ -71,7 +69,9 @@ export default function WorkoutTracker() {
         exercise.sets.length,
         firstSet?.reps || 0,
         firstSet?.weight || 0,
-        userId
+        userId,
+        currentDay,
+        currentWeek
       );
     }
 
