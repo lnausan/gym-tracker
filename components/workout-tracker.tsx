@@ -12,6 +12,7 @@ import { useLocalStorage } from "@/hooks/use-local-storage";
 import type { WorkoutPlan, Exercise, WorkoutDay } from "@/types/workout";
 import { generateInitialWorkoutPlan } from "@/lib/workout-utils";
 import ProgressTracker from "@/components/progress-tracker";
+import { createClientComponentClient } from "@/lib/supabase-client";
 
 export default function WorkoutTracker() {
   const initialWorkoutPlan = useMemo(() => generateInitialWorkoutPlan(), []);
@@ -21,26 +22,33 @@ export default function WorkoutTracker() {
   const [isAddExerciseOpen, setIsAddExerciseOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
+  const supabase = createClientComponentClient();
   const daysOfWeek = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
   useEffect(() => {
     setMounted(true);
 
     async function loadExercises() {
-      const data = await getExercisesFromSupabase();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const userId = user?.id;
+      if (!userId) {
+        console.error("No se pudo obtener el userId");
+        return;
+      }
+
+      const data = await getExercisesFromSupabase(userId);
       console.log("Ejercicios cargados desde Supabase:", data);
-      // (Futuro) Puedes actualizar el estado local aquí si quieres inicializar con lo que hay en Supabase
     }
 
     loadExercises();
-  }, []);
+  }, [supabase]);
 
-  if (!mounted) {
-    return null;
-  }
+  if (!mounted) return null;
 
   const handleAddExercise = async (exercise: Exercise) => {
-    // Guardar localmente
     setWorkoutPlan((prev) => {
       const updatedPlan = { ...prev };
       const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] };
@@ -53,13 +61,23 @@ export default function WorkoutTracker() {
       return updatedPlan;
     });
 
-    // Guardar en Supabase
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const userId = user?.id;
+    if (!userId) {
+      console.error("No se pudo obtener el userId para guardar el ejercicio");
+      return;
+    }
+
     const firstSet = exercise.sets[0];
     await addExerciseToSupabase(
       exercise.name,
       exercise.sets.length,
       firstSet?.reps || 0,
-      firstSet?.weight || 0
+      firstSet?.weight || 0,
+      userId
     );
 
     setIsAddExerciseOpen(false);

@@ -1,37 +1,37 @@
-import { supabase } from "@/lib/supabase";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
-export async function addExerciseToSupabase(name: string, sets: number, reps: number, weight: number) {
-  const { data, error } = await supabase
-    .from('exercises')
-    .insert([
-      {
-        name,
-        sets,
-        reps,
-        weight,
-        date: new Date(),
-      }
-    ]);
+const supabase = createClientComponentClient();
 
-  if (error) {
-    console.error('Error guardando ejercicio en Supabase:', error.message);
-    return null;
-  } else {
-    console.log('Ejercicio guardado en Supabase:', data);
-    return data;
-  }
+export async function addExerciseToSupabase(
+  name: string,
+  sets: number,
+  reps: number,
+  weight: number,
+  user_id: string
+) {
+  const { error } = await supabase.from("exercises").insert([
+    {
+      name,
+      sets,
+      reps,
+      weight,
+      user_id,
+    },
+  ]);
+  if (error) console.error("Error inserting exercise:", error.message);
 }
 
-export async function getExercisesFromSupabase() {
+export async function getExercisesFromSupabase(user_id: string) {
   const { data, error } = await supabase
-    .from('exercises')
-    .select('*')
-    .order('date', { ascending: false });
+    .from("exercises")
+    .select("*")
+    .eq("user_id", user_id)
+    .order("created_at", { ascending: false });
 
   if (error) {
-    console.error('Error trayendo ejercicios de Supabase:', error.message);
+    console.error("Error fetching exercises:", error.message);
     return [];
-  } else {
-    return data;
   }
+
+  return data;
 }
