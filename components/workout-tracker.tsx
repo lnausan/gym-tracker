@@ -40,7 +40,7 @@ export default function WorkoutTracker() {
   const [currentDay, setCurrentDay] = useState("monday");
   const [isAddExerciseOpen, setIsAddExerciseOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>("");
 
   const daysOfWeek = [
     "monday",
@@ -59,7 +59,7 @@ export default function WorkoutTracker() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || !user.id) return;
       setUserId(user.id);
 
       const data = await getExercisesFromSupabase(user.id);
@@ -67,7 +67,7 @@ export default function WorkoutTracker() {
 
       data.forEach((exercise) => {
         const ex: Exercise = {
-          name: exercise.name,
+          name: exercise.name || "",
           type: "default",
           sets: [
             {
@@ -106,12 +106,14 @@ export default function WorkoutTracker() {
 
     if (userId) {
       const firstSet = exercise.sets[0];
+      const date = new Date().toISOString();
       await addExerciseToSupabase(
         exercise.name,
         exercise.sets.length,
         firstSet?.reps || 0,
         firstSet?.weight || 0,
-        userId
+        userId,
+        date
       );
     }
 

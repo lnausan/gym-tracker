@@ -10,7 +10,8 @@ export async function addExerciseToSupabase(
   sets: number,
   reps: number,
   weight: number,
-  user_id: string
+  user_id: string,
+  date: string // nuevo argumento requerido
 ) {
   const { error } = await supabase.from('exercises').insert([
     {
@@ -19,6 +20,7 @@ export async function addExerciseToSupabase(
       reps,
       weight,
       user_id,
+      date,
     },
   ]);
   if (error) console.error('Error inserting exercise:', error.message);
