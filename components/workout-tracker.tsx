@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addExerciseToSupabase,
   getExercisesFromSupabase,
+  SupabaseExercise,
 } from "@/lib/supabase-exercises";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import {
@@ -62,7 +63,7 @@ export default function WorkoutTracker() {
       if (!user || !user.id) return;
       setUserId(user.id);
 
-      const data = await getExercisesFromSupabase(user.id);
+      const data: SupabaseExercise[] = await getExercisesFromSupabase(user.id);
       const initialPlan = generateInitialWorkoutPlan();
 
       data.forEach((exercise) => {
@@ -71,14 +72,22 @@ export default function WorkoutTracker() {
           type: "default",
           sets: [
             {
-              reps: exercise.reps,
-              weight: exercise.weight,
+              reps: exercise.reps || 0,
+              weight: exercise.weight || 0,
               completed: false,
             },
           ],
         };
 
-        (initialPlan.weeks[0]["monday"] as WorkoutDay).exercises.push(ex);
+        const weekIndex = Number(exercise.week) - 1;
+        const dayKey = exercise.day.toLowerCase();
+
+        if (
+          initialPlan.weeks[weekIndex] &&
+          (initialPlan.weeks[weekIndex][dayKey] as WorkoutDay)
+        ) {
+          (initialPlan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(ex);
+        }
       });
 
       setWorkoutPlan(initialPlan);
@@ -106,14 +115,16 @@ export default function WorkoutTracker() {
 
     if (userId) {
       const firstSet = exercise.sets[0];
-      const date = new Date().toISOString();
+      const date = new Date().toISOString().split("T")[0];
       await addExerciseToSupabase(
         exercise.name,
         exercise.sets.length,
         firstSet?.reps || 0,
         firstSet?.weight || 0,
         userId,
-        date
+        date,
+        currentWeek,
+        currentDay
       );
     }
 

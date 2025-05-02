@@ -5,13 +5,28 @@ import type { Database } from '@/types/database';
 
 const supabase = createClientComponentClient<Database>();
 
+export type SupabaseExercise = {
+  id: number;
+  created_at: string;
+  name: string;
+  sets: number;
+  reps: number;
+  weight: number;
+  date: string;
+  user_id: string;
+  week: number;
+  day: string;
+};
+
 export async function addExerciseToSupabase(
   name: string,
   sets: number,
   reps: number,
   weight: number,
   user_id: string,
-  date: string // nuevo argumento requerido
+  date: string,
+  week: number,
+  day: string
 ) {
   const { error } = await supabase.from('exercises').insert([
     {
@@ -20,13 +35,16 @@ export async function addExerciseToSupabase(
       reps,
       weight,
       user_id,
+      created_at: date,
       date,
+      week,
+      day,
     },
   ]);
   if (error) console.error('Error inserting exercise:', error.message);
 }
 
-export async function getExercisesFromSupabase(user_id: string) {
+export async function getExercisesFromSupabase(user_id: string): Promise<SupabaseExercise[]> {
   const { data, error } = await supabase
     .from('exercises')
     .select('*')
@@ -38,5 +56,5 @@ export async function getExercisesFromSupabase(user_id: string) {
     return [];
   }
 
-  return data;
+  return data as SupabaseExercise[];
 }
