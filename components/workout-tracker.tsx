@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -7,28 +6,51 @@ import {
   getExercisesFromSupabase,
 } from "@/lib/supabase-exercises";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import ExerciseList from "@/components/exercise-list";
 import { PlusCircle } from "lucide-react";
 import AddExerciseDialog from "@/components/add-exercise-dialog";
 import { useLocalStorage } from "@/hooks/use-local-storage";
-import type { WorkoutPlan, Exercise, WorkoutDay, WeekPlan } from "@/types/workout";
-import { generateInitialWorkoutPlan } from "@/lib/workout-utils";
+import type {
+  WorkoutPlan,
+  Exercise,
+  WorkoutDay,
+  WeekPlan,
+} from "@/types/workout";
+import {
+  generateInitialWorkoutPlan,
+} from "@/lib/workout-utils";
 import ProgressTracker from "@/components/progress-tracker";
 
 export default function WorkoutTracker() {
   const supabase = createClientComponentClient();
   const initialWorkoutPlan = useMemo(() => generateInitialWorkoutPlan(), []);
-  const [workoutPlan, setWorkoutPlan] = useLocalStorage<WorkoutPlan>("workout-plan", initialWorkoutPlan);
+  const [workoutPlan, setWorkoutPlan] = useLocalStorage<WorkoutPlan>(
+    "workout-plan",
+    initialWorkoutPlan
+  );
   const [currentWeek, setCurrentWeek] = useState(1);
   const [currentDay, setCurrentDay] = useState("monday");
   const [isAddExerciseOpen, setIsAddExerciseOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
-  const daysOfWeek = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+  const daysOfWeek = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+  ];
 
   useEffect(() => {
     setMounted(true);
@@ -45,20 +67,18 @@ export default function WorkoutTracker() {
 
       data.forEach((exercise) => {
         const ex: Exercise = {
-          name: exercise.name ?? '',
+          name: exercise.name,
           type: "default",
           sets: [
             {
-              reps: exercise.reps ?? 0,
-              weight: exercise.weight ?? 0,
+              reps: exercise.reps,
+              weight: exercise.weight,
               completed: false,
             },
           ],
         };
 
-        const week = initialPlan.weeks[currentWeek - 1];
-        const dayPlan = week[currentDay as keyof WeekPlan] as WorkoutDay;
-        dayPlan.exercises.push(ex);
+        (initialPlan.weeks[0]["monday"] as WorkoutDay).exercises.push(ex);
       });
 
       setWorkoutPlan(initialPlan);
@@ -73,7 +93,9 @@ export default function WorkoutTracker() {
     setWorkoutPlan((prev) => {
       const updatedPlan = { ...prev };
       const currentWeekPlan: WeekPlan = updatedPlan.weeks[currentWeek - 1];
-      const currentDayPlan: WorkoutDay = { ...currentWeekPlan[currentDay as keyof WeekPlan] };
+      const currentDayPlan: WorkoutDay = {
+        ...currentWeekPlan[currentDay as keyof WeekPlan],
+      };
 
       currentDayPlan.exercises = [...currentDayPlan.exercises, exercise];
       currentWeekPlan[currentDay as keyof WeekPlan] = currentDayPlan;
@@ -100,7 +122,9 @@ export default function WorkoutTracker() {
     setWorkoutPlan((prev) => {
       const updatedPlan = { ...prev };
       const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] };
-      const currentDayPlan = { ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay) };
+      const currentDayPlan = {
+        ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay),
+      };
 
       currentDayPlan.exercises = currentDayPlan.exercises.map((ex, idx) =>
         idx === exerciseIndex ? updatedExercise : ex
@@ -117,9 +141,13 @@ export default function WorkoutTracker() {
     setWorkoutPlan((prev) => {
       const updatedPlan = { ...prev };
       const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] };
-      const currentDayPlan = { ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay) };
+      const currentDayPlan = {
+        ...(currentWeekPlan[currentDay as keyof typeof currentWeekPlan] as WorkoutDay),
+      };
 
-      currentDayPlan.exercises = currentDayPlan.exercises.filter((_, idx) => idx !== exerciseIndex);
+      currentDayPlan.exercises = currentDayPlan.exercises.filter(
+        (_, idx) => idx !== exerciseIndex
+      );
 
       currentWeekPlan[currentDay as keyof typeof currentWeekPlan] = currentDayPlan;
       updatedPlan.weeks[currentWeek - 1] = currentWeekPlan;
@@ -129,7 +157,9 @@ export default function WorkoutTracker() {
   };
 
   const currentDayExercises =
-    workoutPlan.weeks[currentWeek - 1]?.[currentDay as keyof (typeof workoutPlan.weeks)[0]]?.exercises || [];
+    workoutPlan.weeks[currentWeek - 1]?.[
+      currentDay as keyof (typeof workoutPlan.weeks)[0]
+    ]?.exercises || [];
 
   const calculateWeekProgress = (weekIndex: number) => {
     const week = workoutPlan.weeks[weekIndex];
@@ -169,12 +199,20 @@ export default function WorkoutTracker() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="space-y-1">
-          <h2 className="text-2xl font-semibold tracking-tight text-blue-700">12-Week Workout Plan</h2>
-          <p className="text-sm text-blue-600">Track your progress and stay consistent</p>
+          <h2 className="text-2xl font-semibold tracking-tight text-blue-700">
+            12-Week Workout Plan
+          </h2>
+          <p className="text-sm text-blue-600">
+            Track your progress and stay consistent
+          </p>
         </div>
       </div>
 
-      <ProgressTracker weekProgress={weekProgress} overallProgress={overallProgress} currentWeek={currentWeek} />
+      <ProgressTracker
+        weekProgress={weekProgress}
+        overallProgress={overallProgress}
+        currentWeek={currentWeek}
+      />
 
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-2">
@@ -187,7 +225,9 @@ export default function WorkoutTracker() {
           >
             Previous
           </Button>
-          <span className="font-medium text-blue-700">Week {currentWeek} of 12</span>
+          <span className="font-medium text-blue-700">
+            Week {currentWeek} of 12
+          </span>
           <Button
             variant="outline"
             size="sm"
@@ -200,7 +240,12 @@ export default function WorkoutTracker() {
         </div>
       </div>
 
-      <Tabs defaultValue={currentDay} value={currentDay} onValueChange={setCurrentDay} className="w-full">
+      <Tabs
+        defaultValue={currentDay}
+        value={currentDay}
+        onValueChange={setCurrentDay}
+        className="w-full"
+      >
         <TabsList className="grid w-full grid-cols-7 h-auto bg-blue-100">
           {daysOfWeek.map((day) => (
             <TabsTrigger
@@ -218,7 +263,9 @@ export default function WorkoutTracker() {
             <Card className="border-blue-200">
               <CardContent className="p-4 pt-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-medium capitalize text-blue-700">{day}'s Workout</h3>
+                  <h3 className="text-lg font-medium capitalize text-blue-700">
+                    {day}'s Workout
+                  </h3>
                   <Button
                     size="sm"
                     onClick={() => setIsAddExerciseOpen(true)}
