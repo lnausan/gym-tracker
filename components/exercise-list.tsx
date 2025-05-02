@@ -33,7 +33,7 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
 
   const handleAddSet = (exerciseIndex: number) => {
     const exercise = exercises[exerciseIndex]
-    const newSet = { id: Date.now(), weight: 0, reps: 0, completed: false }
+    const newSet = { weight: 0, reps: 0, completed: false }
     const updatedExercise = {
       ...exercise,
       sets: [...exercise.sets, newSet],
@@ -73,7 +73,7 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
   return (
     <div className="space-y-4">
       {exercises.map((exercise, exerciseIndex) => (
-        <Card key={exerciseIndex} className="overflow-hidden border-blue-200">
+        <Card key={`${exercise.name}-${exerciseIndex}`} className="overflow-hidden border-blue-200">
           <CardHeader className="p-4 pb-2 bg-blue-50">
             <div className="flex items-center justify-between">
               {editingExercise === exerciseIndex ? (
@@ -146,12 +146,12 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
               </TableHeader>
               <TableBody>
                 {exercise.sets.map((set, setIndex) => (
-                  <TableRow key={set.id} className="hover:bg-blue-50">
+                  <TableRow key={`${exerciseIndex}-${setIndex}`} className="hover:bg-blue-50">
                     <TableCell className="font-medium text-blue-700">{setIndex + 1}</TableCell>
                     <TableCell>
                       <Input
                         type="number"
-                        value={set.weight}
+                        value={set.weight ?? ''}
                         onChange={(e) =>
                           handleUpdateSet(exerciseIndex, setIndex, "weight", Number.parseInt(e.target.value) || 0)
                         }
@@ -161,7 +161,7 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
                     <TableCell>
                       <Input
                         type="number"
-                        value={set.reps}
+                        value={set.reps ?? ''}
                         onChange={(e) =>
                           handleUpdateSet(exerciseIndex, setIndex, "reps", Number.parseInt(e.target.value) || 0)
                         }
