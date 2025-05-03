@@ -87,13 +87,11 @@ export default function WorkoutTracker() {
             id: exercise.id,
             name: exercise.name ?? "",
             type: "default",
-            sets: [
-              {
-                reps: exercise.reps ?? 0,
-                weight: exercise.weight ?? 0,
-                completed: false,
-              },
-            ],
+            sets: Array(exercise.sets || 1).fill({
+              reps: exercise.reps ?? 0,
+              weight: exercise.weight ?? 0,
+              completed: false,
+            }),
           };
 
           (plan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(ex);
@@ -104,7 +102,29 @@ export default function WorkoutTracker() {
     };
 
     fetchUserAndData();
-  }, [currentWeek, currentDay]);
+
+    // Configurar suscripción a cambios en tiempo real
+    const subscription = supabase
+      .channel('exercises')
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'exercises',
+          filter: `user_id=eq.${userId}`
+        }, 
+        (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            fetchUserAndData();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [currentWeek, currentDay, userId]);
 
   if (!mounted) return null;
 

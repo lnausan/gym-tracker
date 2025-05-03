@@ -16,32 +16,6 @@ export async function addExerciseToSupabase(
   week: number,
   day: string
 ) {
-  // Verificar si el ejercicio ya existe para este día y semana
-  const { data: existingExercises } = await supabase
-    .from("exercises")
-    .select("*")
-    .eq("user_id", user_id)
-    .eq("week", week)
-    .eq("day", day)
-    .eq("name", name)
-    .limit(1);
-
-  if (existingExercises && existingExercises.length > 0) {
-    // Si existe, actualizarlo en lugar de crear uno nuevo
-    const { error } = await supabase
-      .from("exercises")
-      .update({
-        sets,
-        reps,
-        weight,
-      })
-      .eq("id", existingExercises[0].id);
-
-    if (error) console.error("❌ Error updating exercise:", error.message);
-    return;
-  }
-
-  // Si no existe, crear uno nuevo
   const { error } = await supabase.from("exercises").insert([
     {
       name,
@@ -63,7 +37,8 @@ export async function getExercisesFromSupabase(user_id: string, week?: number, d
   let query = supabase
     .from("exercises")
     .select("*")
-    .eq("user_id", user_id);
+    .eq("user_id", user_id)
+    .order("updated_at", { ascending: false });
 
   if (week) {
     query = query.eq("week", week);
@@ -73,7 +48,7 @@ export async function getExercisesFromSupabase(user_id: string, week?: number, d
     query = query.eq("day", day);
   }
 
-  const { data, error } = await query.order("created_at", { ascending: true });
+  const { data, error } = await query;
 
   if (error) {
     console.error("❌ Error fetching exercises:", error.message);
@@ -97,7 +72,9 @@ export async function updateExerciseInSupabase(
   name: string,
   sets: number,
   reps: number,
-  weight: number
+  weight: number,
+  week: number,
+  day: string
 ) {
   const { error } = await supabase
     .from("exercises")
@@ -106,6 +83,9 @@ export async function updateExerciseInSupabase(
       sets,
       reps,
       weight,
+      week,
+      day,
+      updated_at: new Date().toISOString(),
     })
     .eq("id", id);
 

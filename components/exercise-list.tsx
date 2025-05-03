@@ -63,14 +63,28 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
     }
   };
 
-  const handleAddSet = (exerciseIndex: number) => {
+  const handleAddSet = async (exerciseIndex: number) => {
     const exercise = exercises[exerciseIndex];
     const newSet = { weight: 0, reps: 0, completed: false };
     const updatedExercise = {
       ...exercise,
       sets: [...exercise.sets, newSet],
     };
+    
     onUpdateExercise(exerciseIndex, updatedExercise);
+
+    // Actualizar en Supabase si existe el ID
+    if (exercise.id && userId && currentWeek && currentDay) {
+      await updateExerciseInSupabase(
+        exercise.id,
+        exercise.name,
+        updatedExercise.sets.length,
+        0,
+        0,
+        currentWeek,
+        currentDay
+      );
+    }
   };
 
   const handleUpdateSet = async (
@@ -99,12 +113,14 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
         exercise.name,
         updatedSets.length,
         currentSet.reps || 0,
-        currentSet.weight || 0
+        currentSet.weight || 0,
+        currentWeek,
+        currentDay
       );
     }
   };
 
-  const handleDeleteSet = (exerciseIndex: number, setIndex: number) => {
+  const handleDeleteSet = async (exerciseIndex: number, setIndex: number) => {
     const exercise = exercises[exerciseIndex];
     const updatedSets = exercise.sets.filter((_, idx) => idx !== setIndex);
 
@@ -114,6 +130,20 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
     };
 
     onUpdateExercise(exerciseIndex, updatedExercise);
+
+    // Actualizar en Supabase si existe el ID
+    if (exercise.id && userId && currentWeek && currentDay) {
+      const currentSet = updatedSets[setIndex] || { reps: 0, weight: 0 };
+      await updateExerciseInSupabase(
+        exercise.id,
+        exercise.name,
+        updatedSets.length,
+        currentSet.reps || 0,
+        currentSet.weight || 0,
+        currentWeek,
+        currentDay
+      );
+    }
   };
 
   return (
