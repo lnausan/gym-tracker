@@ -19,6 +19,8 @@ export type Database = {
           sets: number | null
           user_id: string | null
           weight: number | null
+          week: number | null
+          day: string | null
         }
         Insert: {
           created_at?: string
@@ -29,6 +31,8 @@ export type Database = {
           sets?: number | null
           user_id?: string | null
           weight?: number | null
+          week?: number | null
+          day?: string | null
         }
         Update: {
           created_at?: string
@@ -39,6 +43,8 @@ export type Database = {
           sets?: number | null
           user_id?: string | null
           weight?: number | null
+          week?: number | null
+          day?: string | null
         }
         Relationships: []
       }

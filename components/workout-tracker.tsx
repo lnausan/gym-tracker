@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addExerciseToSupabase,
   getExercisesFromSupabase,
-  SupabaseExercise,
 } from "@/lib/supabase-exercises";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import {
@@ -25,9 +24,7 @@ import type {
   WorkoutDay,
   WeekPlan,
 } from "@/types/workout";
-import {
-  generateInitialWorkoutPlan,
-} from "@/lib/workout-utils";
+import { generateInitialWorkoutPlan } from "@/lib/workout-utils";
 import ProgressTracker from "@/components/progress-tracker";
 
 export default function WorkoutTracker() {
@@ -63,7 +60,7 @@ export default function WorkoutTracker() {
       if (!user || !user.id) return;
       setUserId(user.id);
 
-      const data: SupabaseExercise[] = await getExercisesFromSupabase(user.id);
+      const data = await getExercisesFromSupabase(user.id);
       const initialPlan = generateInitialWorkoutPlan();
 
       data.forEach((exercise) => {
@@ -72,19 +69,19 @@ export default function WorkoutTracker() {
           type: "default",
           sets: [
             {
-              reps: exercise.reps || 0,
-              weight: exercise.weight || 0,
+              reps: exercise.reps ?? 0,
+              weight: exercise.weight ?? 0,
               completed: false,
             },
           ],
         };
 
-        const weekIndex = Number(exercise.week) - 1;
-        const dayKey = exercise.day.toLowerCase();
+        const weekIndex = (exercise.week ?? 1) - 1;
+        const dayKey = (exercise.day ?? "monday").toLowerCase() as keyof WeekPlan;
 
         if (
           initialPlan.weeks[weekIndex] &&
-          (initialPlan.weeks[weekIndex][dayKey] as WorkoutDay)
+          initialPlan.weeks[weekIndex][dayKey]
         ) {
           (initialPlan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(ex);
         }
@@ -115,7 +112,7 @@ export default function WorkoutTracker() {
 
     if (userId) {
       const firstSet = exercise.sets[0];
-      const date = new Date().toISOString().split("T")[0];
+      const date = new Date().toISOString();
       await addExerciseToSupabase(
         exercise.name,
         exercise.sets.length,
