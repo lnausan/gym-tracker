@@ -11,9 +11,9 @@ export type Database = {
     Tables: {
       exercises: {
         Row: {
+          id: number
           created_at: string
           date: string | null
-          id: number
           name: string | null
           reps: number | null
           sets: number | null
@@ -23,9 +23,9 @@ export type Database = {
           day: string | null
         }
         Insert: {
+          id?: number
           created_at?: string
           date?: string | null
-          id?: number
           name?: string | null
           reps?: number | null
           sets?: number | null
@@ -35,9 +35,9 @@ export type Database = {
           day?: string | null
         }
         Update: {
+          id?: number
           created_at?: string
           date?: string | null
-          id?: number
           name?: string | null
           reps?: number | null
           sets?: number | null

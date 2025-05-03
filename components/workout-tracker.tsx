@@ -26,6 +26,9 @@ import type {
 } from "@/types/workout";
 import { generateInitialWorkoutPlan } from "@/lib/workout-utils";
 import ProgressTracker from "@/components/progress-tracker";
+import type { Database } from "@/types/database";
+
+type ExerciseRow = Database["public"]["Tables"]["exercises"]["Row"];
 
 export default function WorkoutTracker() {
   const supabase = createClientComponentClient();
@@ -58,32 +61,35 @@ export default function WorkoutTracker() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user || !user.id) return;
+
       setUserId(user.id);
 
       const data = await getExercisesFromSupabase(user.id);
       const initialPlan = generateInitialWorkoutPlan();
 
-      data.forEach((exercise) => {
-        const ex: Exercise = {
-          name: exercise.name || "",
-          type: "default",
-          sets: [
-            {
-              reps: exercise.reps ?? 0,
-              weight: exercise.weight ?? 0,
-              completed: false,
-            },
-          ],
-        };
-
+      (data as ExerciseRow[]).forEach((exercise) => {
         const weekIndex = (exercise.week ?? 1) - 1;
-        const dayKey = (exercise.day ?? "monday").toLowerCase() as keyof WeekPlan;
+        const dayKey = (exercise.day ?? "monday") as keyof WeekPlan;
 
         if (
           initialPlan.weeks[weekIndex] &&
           initialPlan.weeks[weekIndex][dayKey]
         ) {
-          (initialPlan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(ex);
+          const ex: Exercise = {
+            name: exercise.name ?? "",
+            type: "default",
+            sets: [
+              {
+                reps: exercise.reps ?? 0,
+                weight: exercise.weight ?? 0,
+                completed: false,
+              },
+            ],
+          };
+
+          (initialPlan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(
+            ex
+          );
         }
       });
 
@@ -113,6 +119,7 @@ export default function WorkoutTracker() {
     if (userId) {
       const firstSet = exercise.sets[0];
       const date = new Date().toISOString();
+
       await addExerciseToSupabase(
         exercise.name,
         exercise.sets.length,
