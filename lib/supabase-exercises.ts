@@ -16,6 +16,32 @@ export async function addExerciseToSupabase(
   week: number,
   day: string
 ) {
+  // Verificar si el ejercicio ya existe para este día y semana
+  const { data: existingExercises } = await supabase
+    .from("exercises")
+    .select("*")
+    .eq("user_id", user_id)
+    .eq("week", week)
+    .eq("day", day)
+    .eq("name", name)
+    .limit(1);
+
+  if (existingExercises && existingExercises.length > 0) {
+    // Si existe, actualizarlo en lugar de crear uno nuevo
+    const { error } = await supabase
+      .from("exercises")
+      .update({
+        sets,
+        reps,
+        weight,
+      })
+      .eq("id", existingExercises[0].id);
+
+    if (error) console.error("❌ Error updating exercise:", error.message);
+    return;
+  }
+
+  // Si no existe, crear uno nuevo
   const { error } = await supabase.from("exercises").insert([
     {
       name,

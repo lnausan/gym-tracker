@@ -37,16 +37,29 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
     if (userId && currentWeek && currentDay) {
       const firstSet = updatedExercise.sets[0];
       const date = new Date().toISOString();
-      await addExerciseToSupabase(
-        updatedExercise.name,
-        updatedExercise.sets.length,
-        firstSet?.reps || 0,
-        firstSet?.weight || 0,
-        userId,
-        date,
-        currentWeek,
-        currentDay
-      );
+
+      if (updatedExercise.id) {
+        // Si el ejercicio ya existe, actualizarlo
+        await updateExerciseInSupabase(
+          updatedExercise.id,
+          updatedExercise.name,
+          updatedExercise.sets.length,
+          firstSet?.reps || 0,
+          firstSet?.weight || 0
+        );
+      } else {
+        // Si es un nuevo ejercicio, crearlo
+        await addExerciseToSupabase(
+          updatedExercise.name,
+          updatedExercise.sets.length,
+          firstSet?.reps || 0,
+          firstSet?.weight || 0,
+          userId,
+          date,
+          currentWeek,
+          currentDay
+        );
+      }
     }
   };
 

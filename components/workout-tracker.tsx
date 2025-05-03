@@ -68,6 +68,13 @@ export default function WorkoutTracker() {
       const data = await getExercisesFromSupabase(user.id, currentWeek, currentDay);
       const plan = generateInitialWorkoutPlan();
 
+      // Limpiar los ejercicios existentes para el día actual
+      const currentWeekPlan = plan.weeks[currentWeek - 1];
+      const currentDayKey = currentDay as keyof WeekPlan;
+      if (currentWeekPlan && currentWeekPlan[currentDayKey]) {
+        currentWeekPlan[currentDayKey].exercises = [];
+      }
+
       (data as ExerciseRow[]).forEach((exercise) => {
         const weekIndex = (exercise.week ?? 1) - 1;
         const dayKey = (exercise.day ?? "monday") as keyof WeekPlan;
@@ -77,6 +84,7 @@ export default function WorkoutTracker() {
           plan.weeks[weekIndex][dayKey]
         ) {
           const ex: Exercise = {
+            id: exercise.id,
             name: exercise.name ?? "",
             type: "default",
             sets: [
