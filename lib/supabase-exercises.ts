@@ -37,8 +37,7 @@ export async function getExercisesFromSupabase(user_id: string, week?: number, d
   let query = supabase
     .from("exercises")
     .select("*")
-    .eq("user_id", user_id)
-    .order("updated_at", { ascending: false });
+    .eq("user_id", user_id);
 
   if (week) {
     query = query.eq("week", week);
@@ -48,14 +47,20 @@ export async function getExercisesFromSupabase(user_id: string, week?: number, d
     query = query.eq("day", day);
   }
 
-  const { data, error } = await query;
+  const { data, error } = await query.order("created_at", { ascending: true });
 
   if (error) {
     console.error("❌ Error fetching exercises:", error.message);
     return [];
   }
 
-  return data;
+  // Asegurarse de que los datos tengan el formato correcto
+  return data?.map(exercise => ({
+    ...exercise,
+    reps: exercise.reps || 0,
+    weight: exercise.weight || 0,
+    sets: exercise.sets || 1
+  })) || [];
 }
 
 // 🧼 Borra un ejercicio real en Supabase según ID (te lo paso luego cómo usarlo)

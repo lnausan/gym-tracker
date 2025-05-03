@@ -87,11 +87,13 @@ export default function WorkoutTracker() {
             id: exercise.id,
             name: exercise.name ?? "",
             type: "default",
-            sets: Array(exercise.sets || 1).fill({
-              reps: exercise.reps ?? 0,
-              weight: exercise.weight ?? 0,
-              completed: false,
-            }),
+            sets: [
+              {
+                reps: exercise.reps ?? 0,
+                weight: exercise.weight ?? 0,
+                completed: false,
+              },
+            ],
           };
 
           (plan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(ex);
@@ -113,10 +115,9 @@ export default function WorkoutTracker() {
           table: 'exercises',
           filter: `user_id=eq.${userId}`
         }, 
-        (payload) => {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            fetchUserAndData();
-          }
+        async (payload) => {
+          console.log('Change received!', payload);
+          await fetchUserAndData();
         }
       )
       .subscribe();
@@ -124,6 +125,51 @@ export default function WorkoutTracker() {
     return () => {
       subscription.unsubscribe();
     };
+  }, [currentWeek, currentDay, userId]);
+
+  // Agregar un efecto adicional para recargar datos cuando cambia el día o la semana
+  useEffect(() => {
+    if (userId) {
+      const fetchData = async () => {
+        const data = await getExercisesFromSupabase(userId, currentWeek, currentDay);
+        const plan = generateInitialWorkoutPlan();
+
+        const currentWeekPlan = plan.weeks[currentWeek - 1];
+        const currentDayKey = currentDay as keyof WeekPlan;
+        if (currentWeekPlan && currentWeekPlan[currentDayKey]) {
+          currentWeekPlan[currentDayKey].exercises = [];
+        }
+
+        (data as ExerciseRow[]).forEach((exercise) => {
+          const weekIndex = (exercise.week ?? 1) - 1;
+          const dayKey = (exercise.day ?? "monday") as keyof WeekPlan;
+
+          if (
+            plan.weeks[weekIndex] &&
+            plan.weeks[weekIndex][dayKey]
+          ) {
+            const ex: Exercise = {
+              id: exercise.id,
+              name: exercise.name ?? "",
+              type: "default",
+              sets: [
+                {
+                  reps: exercise.reps ?? 0,
+                  weight: exercise.weight ?? 0,
+                  completed: false,
+                },
+              ],
+            };
+
+            (plan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(ex);
+          }
+        });
+
+        setWorkoutPlan(plan);
+      };
+
+      fetchData();
+    }
   }, [currentWeek, currentDay, userId]);
 
   if (!mounted) return null;
