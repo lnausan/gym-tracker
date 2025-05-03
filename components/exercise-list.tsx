@@ -9,14 +9,18 @@ import { Trash, Edit, Plus, Save, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { addExerciseToSupabase } from "@/lib/supabase-exercises";
 
 interface ExerciseListProps {
   exercises: Exercise[];
   onUpdateExercise: (index: number, exercise: Exercise) => void;
   onDeleteExercise: (index: number) => void;
+  userId?: string;
+  currentWeek?: number;
+  currentDay?: string;
 }
 
-export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExercise }: ExerciseListProps) {
+export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExercise, userId, currentWeek, currentDay }: ExerciseListProps) {
   const [editingExercise, setEditingExercise] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
 
@@ -25,10 +29,25 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
     setEditingName(exercises[index].name);
   };
 
-  const handleSaveExerciseName = (index: number) => {
+  const handleSaveExerciseName = async (index: number) => {
     const updatedExercise = { ...exercises[index], name: editingName };
     onUpdateExercise(index, updatedExercise);
     setEditingExercise(null);
+
+    if (userId && currentWeek && currentDay) {
+      const firstSet = updatedExercise.sets[0];
+      const date = new Date().toISOString();
+      await addExerciseToSupabase(
+        updatedExercise.name,
+        updatedExercise.sets.length,
+        firstSet?.reps || 0,
+        firstSet?.weight || 0,
+        userId,
+        date,
+        currentWeek,
+        currentDay
+      );
+    }
   };
 
   const handleAddSet = (exerciseIndex: number) => {

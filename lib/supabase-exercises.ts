@@ -5,6 +5,7 @@ import type { Database } from "@/types/database";
 
 const supabase = createClientComponentClient<Database>();
 
+// 👉 Agrega un ejercicio con info completa
 export async function addExerciseToSupabase(
   name: string,
   sets: number,
@@ -28,9 +29,10 @@ export async function addExerciseToSupabase(
     },
   ]);
 
-  if (error) console.error("Error inserting exercise:", error.message);
+  if (error) console.error("❌ Error inserting exercise:", error.message);
 }
 
+// ✅ Obtiene solo los ejercicios de ese usuario
 export async function getExercisesFromSupabase(user_id: string) {
   const { data, error } = await supabase
     .from("exercises")
@@ -39,9 +41,18 @@ export async function getExercisesFromSupabase(user_id: string) {
     .order("created_at", { ascending: true });
 
   if (error) {
-    console.error("Error fetching exercises:", error.message);
+    console.error("❌ Error fetching exercises:", error.message);
     return [];
   }
 
   return data;
+}
+
+// 🧼 Borra un ejercicio real en Supabase según ID (te lo paso luego cómo usarlo)
+export async function deleteExerciseFromSupabase(id: number) {
+  const { error } = await supabase.from("exercises").delete().eq("id", id);
+
+  if (error) {
+    console.error("❌ Error deleting exercise:", error.message);
+  }
 }

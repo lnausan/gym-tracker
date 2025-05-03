@@ -65,15 +65,15 @@ export default function WorkoutTracker() {
       setUserId(user.id);
 
       const data = await getExercisesFromSupabase(user.id);
-      const initialPlan = generateInitialWorkoutPlan();
+      const plan = generateInitialWorkoutPlan();
 
       (data as ExerciseRow[]).forEach((exercise) => {
         const weekIndex = (exercise.week ?? 1) - 1;
         const dayKey = (exercise.day ?? "monday") as keyof WeekPlan;
 
         if (
-          initialPlan.weeks[weekIndex] &&
-          initialPlan.weeks[weekIndex][dayKey]
+          plan.weeks[weekIndex] &&
+          plan.weeks[weekIndex][dayKey]
         ) {
           const ex: Exercise = {
             name: exercise.name ?? "",
@@ -87,13 +87,11 @@ export default function WorkoutTracker() {
             ],
           };
 
-          (initialPlan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(
-            ex
-          );
+          (plan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(ex);
         }
       });
 
-      setWorkoutPlan(initialPlan);
+      setWorkoutPlan(plan);
     };
 
     fetchUserAndData();
@@ -297,6 +295,9 @@ export default function WorkoutTracker() {
                   exercises={currentDayExercises}
                   onUpdateExercise={handleUpdateExercise}
                   onDeleteExercise={handleDeleteExercise}
+                  userId={userId}
+                  currentWeek={currentWeek}
+                  currentDay={currentDay}
                 />
 
                 {currentDayExercises.length === 0 && (
