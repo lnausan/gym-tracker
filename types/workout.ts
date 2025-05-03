@@ -1,4 +1,3 @@
-
 export type ExerciseSet = {
   reps: number | null;
   weight: number | null;
@@ -6,6 +5,7 @@ export type ExerciseSet = {
 };
 
 export type Exercise = {
+  id?: number;
   name: string;
   type: string; // agregado para resolver el error
   sets: ExerciseSet[];

@@ -9,7 +9,7 @@ import { Trash, Edit, Plus, Save, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { addExerciseToSupabase } from "@/lib/supabase-exercises";
+import { addExerciseToSupabase, updateExerciseInSupabase } from "@/lib/supabase-exercises";
 
 interface ExerciseListProps {
   exercises: Exercise[];
@@ -60,7 +60,7 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
     onUpdateExercise(exerciseIndex, updatedExercise);
   };
 
-  const handleUpdateSet = (
+  const handleUpdateSet = async (
     exerciseIndex: number,
     setIndex: number,
     field: "weight" | "reps" | "completed",
@@ -77,6 +77,18 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
     };
 
     onUpdateExercise(exerciseIndex, updatedExercise);
+
+    // Actualizar en Supabase si existe el ID
+    if (exercise.id && userId && currentWeek && currentDay) {
+      const currentSet = updatedSets[setIndex];
+      await updateExerciseInSupabase(
+        exercise.id,
+        exercise.name,
+        updatedSets.length,
+        currentSet.reps || 0,
+        currentSet.weight || 0
+      );
+    }
   };
 
   const handleDeleteSet = (exerciseIndex: number, setIndex: number) => {

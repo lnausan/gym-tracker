@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addExerciseToSupabase,
   getExercisesFromSupabase,
+  deleteExerciseFromSupabase,
 } from "@/lib/supabase-exercises";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import {
@@ -64,7 +65,7 @@ export default function WorkoutTracker() {
 
       setUserId(user.id);
 
-      const data = await getExercisesFromSupabase(user.id);
+      const data = await getExercisesFromSupabase(user.id, currentWeek, currentDay);
       const plan = generateInitialWorkoutPlan();
 
       (data as ExerciseRow[]).forEach((exercise) => {
@@ -95,7 +96,7 @@ export default function WorkoutTracker() {
     };
 
     fetchUserAndData();
-  }, []);
+  }, [currentWeek, currentDay]);
 
   if (!mounted) return null;
 
@@ -152,7 +153,14 @@ export default function WorkoutTracker() {
     });
   };
 
-  const handleDeleteExercise = (exerciseIndex: number) => {
+  const handleDeleteExercise = async (exerciseIndex: number) => {
+    const exercise = currentDayExercises[exerciseIndex];
+    
+    // Eliminar de Supabase si existe
+    if (exercise.id) {
+      await deleteExerciseFromSupabase(exercise.id);
+    }
+
     setWorkoutPlan((prev) => {
       const updatedPlan = { ...prev };
       const currentWeekPlan = { ...updatedPlan.weeks[currentWeek - 1] };

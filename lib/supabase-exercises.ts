@@ -33,12 +33,21 @@ export async function addExerciseToSupabase(
 }
 
 // ✅ Obtiene solo los ejercicios de ese usuario
-export async function getExercisesFromSupabase(user_id: string) {
-  const { data, error } = await supabase
+export async function getExercisesFromSupabase(user_id: string, week?: number, day?: string) {
+  let query = supabase
     .from("exercises")
     .select("*")
-    .eq("user_id", user_id)
-    .order("created_at", { ascending: true });
+    .eq("user_id", user_id);
+
+  if (week) {
+    query = query.eq("week", week);
+  }
+  
+  if (day) {
+    query = query.eq("day", day);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: true });
 
   if (error) {
     console.error("❌ Error fetching exercises:", error.message);
@@ -55,4 +64,24 @@ export async function deleteExerciseFromSupabase(id: number) {
   if (error) {
     console.error("❌ Error deleting exercise:", error.message);
   }
+}
+
+export async function updateExerciseInSupabase(
+  id: number,
+  name: string,
+  sets: number,
+  reps: number,
+  weight: number
+) {
+  const { error } = await supabase
+    .from("exercises")
+    .update({
+      name,
+      sets,
+      reps,
+      weight,
+    })
+    .eq("id", id);
+
+  if (error) console.error("❌ Error updating exercise:", error.message);
 }
