@@ -28,6 +28,7 @@ import type {
 import { generateInitialWorkoutPlan } from "@/lib/workout-utils";
 import ProgressTracker from "@/components/progress-tracker";
 import type { Database } from "@/types/database";
+import { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 type ExerciseRow = Database["public"]["Tables"]["exercises"]["Row"];
 
@@ -43,6 +44,7 @@ export default function WorkoutTracker() {
   const [isAddExerciseOpen, setIsAddExerciseOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [userId, setUserId] = useState<string>("");
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const daysOfWeek = [
     "monday",
@@ -54,27 +56,18 @@ export default function WorkoutTracker() {
     "sunday",
   ];
 
-  useEffect(() => {
-    setMounted(true);
-
-    const fetchUserAndData = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || !user.id) return;
-
-      setUserId(user.id);
-
-      const data = await getExercisesFromSupabase(user.id, currentWeek, currentDay);
+  const syncExercises = async () => {
+    if (!userId) return;
+    setIsSyncing(true);
+    try {
+      const data = await getExercisesFromSupabase(userId, currentWeek, currentDay);
       const plan = generateInitialWorkoutPlan();
 
-      // Solo limpiar los ejercicios del día actual si hay datos nuevos
-      if (data && data.length > 0) {
-        const currentWeekPlan = plan.weeks[currentWeek - 1];
-        const currentDayKey = currentDay as keyof WeekPlan;
-        if (currentWeekPlan && currentWeekPlan[currentDayKey]) {
-          currentWeekPlan[currentDayKey].exercises = [];
-        }
+      // Limpiar los ejercicios del día actual
+      const currentWeekPlan = plan.weeks[currentWeek - 1];
+      const currentDayKey = currentDay as keyof WeekPlan;
+      if (currentWeekPlan && currentWeekPlan[currentDayKey]) {
+        currentWeekPlan[currentDayKey].exercises = [];
       }
 
       (data as ExerciseRow[]).forEach((exercise) => {
@@ -101,6 +94,24 @@ export default function WorkoutTracker() {
       });
 
       setWorkoutPlan(plan);
+    } catch (error) {
+      console.error("Error syncing exercises:", error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    setMounted(true);
+
+    const fetchUserAndData = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user || !user.id) return;
+
+      setUserId(user.id);
+      await syncExercises();
     };
 
     fetchUserAndData();
@@ -115,18 +126,51 @@ export default function WorkoutTracker() {
           table: 'exercises',
           filter: `user_id=eq.${userId}`
         }, 
-        async (payload: { new: Database['public']['Tables']['exercises']['Row'] }) => {
+        async (payload: RealtimePostgresChangesPayload<Database['public']['Tables']['exercises']['Row']>) => {
           console.log('Change received!', payload);
-          // Solo recargar si el cambio es para el día y semana actual
-          if (payload.new?.week === currentWeek && payload.new?.day === currentDay) {
-            await fetchUserAndData();
-          }
+          await syncExercises();
+        }
+      )
+      .subscribe();
+
+    // Suscripción para actualizaciones
+    const updateSubscription = supabase
+      .channel('exercises-updates')
+      .on('postgres_changes', 
+        { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'exercises',
+          filter: `user_id=eq.${userId}`
+        }, 
+        async (payload: RealtimePostgresChangesPayload<Database['public']['Tables']['exercises']['Row']>) => {
+          console.log('Update received!', payload);
+          await syncExercises();
+        }
+      )
+      .subscribe();
+
+    // Suscripción para eliminaciones
+    const deleteSubscription = supabase
+      .channel('exercises-deletes')
+      .on('postgres_changes', 
+        { 
+          event: 'DELETE', 
+          schema: 'public', 
+          table: 'exercises',
+          filter: `user_id=eq.${userId}`
+        }, 
+        async (payload: RealtimePostgresChangesPayload<Database['public']['Tables']['exercises']['Row']>) => {
+          console.log('Delete received!', payload);
+          await syncExercises();
         }
       )
       .subscribe();
 
     return () => {
       subscription.unsubscribe();
+      updateSubscription.unsubscribe();
+      deleteSubscription.unsubscribe();
     };
   }, [currentWeek, currentDay, userId]);
 
@@ -261,6 +305,13 @@ export default function WorkoutTracker() {
             Track your progress and stay consistent
           </p>
         </div>
+        <Button
+          onClick={syncExercises}
+          disabled={isSyncing}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          {isSyncing ? "Syncing..." : "Sync Exercises"}
+        </Button>
       </div>
 
       <ProgressTracker
