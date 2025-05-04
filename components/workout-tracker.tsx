@@ -61,37 +61,34 @@ export default function WorkoutTracker() {
     setIsSyncing(true);
     try {
       const data = await getExercisesFromSupabase(userId, currentWeek, currentDay);
-      const plan = generateInitialWorkoutPlan();
+      const plan = { ...workoutPlan };
 
-      // No limpiar los ejercicios existentes, solo agregar o actualizar
+      // Limpiar solo los ejercicios del día actual
+      const currentWeekPlan = plan.weeks[currentWeek - 1];
+      const currentDayKey = currentDay as keyof WeekPlan;
+      if (currentWeekPlan && currentWeekPlan[currentDayKey]) {
+        currentWeekPlan[currentDayKey].exercises = [];
+      }
+
+      // Solo agregar ejercicios al día actual
       (data as ExerciseRow[]).forEach((exercise) => {
         const weekIndex = (exercise.week ?? 1) - 1;
         const dayKey = (exercise.day ?? "monday") as keyof WeekPlan;
 
-        if (
-          plan.weeks[weekIndex] &&
-          plan.weeks[weekIndex][dayKey]
-        ) {
-          const existingExerciseIndex = plan.weeks[weekIndex][dayKey].exercises.findIndex(
-            (ex) => ex.id === exercise.id
-          );
+        // Solo procesar ejercicios del día y semana actual
+        if (weekIndex === currentWeek - 1 && dayKey === currentDay) {
+          if (plan.weeks[weekIndex] && plan.weeks[weekIndex][dayKey]) {
+            const newExercise: Exercise = {
+              id: exercise.id,
+              name: exercise.name ?? "",
+              type: "default",
+              sets: Array(exercise.sets || 1).fill(null).map(() => ({
+                reps: exercise.reps ?? 0,
+                weight: exercise.weight ?? 0,
+                completed: false,
+              })),
+            };
 
-          const newExercise: Exercise = {
-            id: exercise.id,
-            name: exercise.name ?? "",
-            type: "default",
-            sets: Array(exercise.sets || 1).fill(null).map(() => ({
-              reps: exercise.reps ?? 0,
-              weight: exercise.weight ?? 0,
-              completed: false,
-            })),
-          };
-
-          if (existingExerciseIndex >= 0) {
-            // Actualizar ejercicio existente
-            plan.weeks[weekIndex][dayKey].exercises[existingExerciseIndex] = newExercise;
-          } else {
-            // Agregar nuevo ejercicio
             plan.weeks[weekIndex][dayKey].exercises.push(newExercise);
           }
         }
@@ -289,7 +286,7 @@ export default function WorkoutTracker() {
           disabled={isSyncing}
           className="bg-blue-600 hover:bg-blue-700"
         >
-          {isSyncing ? "Syncing..." : "Sync Exercises"}
+          {isSyncing ? "Updating..." : "Update Exercises"}
         </Button>
       </div>
 
