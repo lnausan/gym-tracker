@@ -68,11 +68,13 @@ export default function WorkoutTracker() {
       const data = await getExercisesFromSupabase(user.id, currentWeek, currentDay);
       const plan = generateInitialWorkoutPlan();
 
-      // Limpiar los ejercicios existentes para el día actual
-      const currentWeekPlan = plan.weeks[currentWeek - 1];
-      const currentDayKey = currentDay as keyof WeekPlan;
-      if (currentWeekPlan && currentWeekPlan[currentDayKey]) {
-        currentWeekPlan[currentDayKey].exercises = [];
+      // Solo limpiar los ejercicios del día actual si hay datos nuevos
+      if (data && data.length > 0) {
+        const currentWeekPlan = plan.weeks[currentWeek - 1];
+        const currentDayKey = currentDay as keyof WeekPlan;
+        if (currentWeekPlan && currentWeekPlan[currentDayKey]) {
+          currentWeekPlan[currentDayKey].exercises = [];
+        }
       }
 
       (data as ExerciseRow[]).forEach((exercise) => {
@@ -110,14 +112,17 @@ export default function WorkoutTracker() {
       .channel('exercises')
       .on('postgres_changes', 
         { 
-          event: '*', 
+          event: 'INSERT', 
           schema: 'public', 
           table: 'exercises',
           filter: `user_id=eq.${userId}`
         }, 
-        async (payload) => {
+        async (payload: { new: Database['public']['Tables']['exercises']['Row'] }) => {
           console.log('Change received!', payload);
-          await fetchUserAndData();
+          // Solo recargar si el cambio es para el día y semana actual
+          if (payload.new?.week === currentWeek && payload.new?.day === currentDay) {
+            await fetchUserAndData();
+          }
         }
       )
       .subscribe();
@@ -125,51 +130,6 @@ export default function WorkoutTracker() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [currentWeek, currentDay, userId]);
-
-  // Agregar un efecto adicional para recargar datos cuando cambia el día o la semana
-  useEffect(() => {
-    if (userId) {
-      const fetchData = async () => {
-        const data = await getExercisesFromSupabase(userId, currentWeek, currentDay);
-        const plan = generateInitialWorkoutPlan();
-
-        const currentWeekPlan = plan.weeks[currentWeek - 1];
-        const currentDayKey = currentDay as keyof WeekPlan;
-        if (currentWeekPlan && currentWeekPlan[currentDayKey]) {
-          currentWeekPlan[currentDayKey].exercises = [];
-        }
-
-        (data as ExerciseRow[]).forEach((exercise) => {
-          const weekIndex = (exercise.week ?? 1) - 1;
-          const dayKey = (exercise.day ?? "monday") as keyof WeekPlan;
-
-          if (
-            plan.weeks[weekIndex] &&
-            plan.weeks[weekIndex][dayKey]
-          ) {
-            const ex: Exercise = {
-              id: exercise.id,
-              name: exercise.name ?? "",
-              type: "default",
-              sets: [
-                {
-                  reps: exercise.reps ?? 0,
-                  weight: exercise.weight ?? 0,
-                  completed: false,
-                },
-              ],
-            };
-
-            (plan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(ex);
-          }
-        });
-
-        setWorkoutPlan(plan);
-      };
-
-      fetchData();
-    }
   }, [currentWeek, currentDay, userId]);
 
   if (!mounted) return null;
