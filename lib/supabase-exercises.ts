@@ -26,8 +26,7 @@ export async function addExerciseToSupabase(
       date,
       week,
       day,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      created_at: new Date().toISOString()
     },
   ]).select();
 
@@ -73,12 +72,11 @@ export async function getExercisesFromSupabase(user_id: string, week?: number, d
     week: exercise.week || 1,
     day: exercise.day || "monday",
     user_id: exercise.user_id,
-    created_at: exercise.created_at,
-    updated_at: exercise.updated_at
+    created_at: exercise.created_at
   }));
 }
 
-// 🧼 Borra un ejercicio real en Supabase según ID (te lo paso luego cómo usarlo)
+// 🧼 Borra un ejercicio real en Supabase según ID
 export async function deleteExerciseFromSupabase(id: number) {
   const { error } = await supabase.from("exercises").delete().eq("id", id);
 
@@ -104,8 +102,7 @@ export async function updateExerciseInSupabase(
       reps,
       weight,
       week,
-      day,
-      updated_at: new Date().toISOString(),
+      day
     })
     .eq("id", id)
     .select();
