@@ -5,32 +5,39 @@ import { useState } from "react";
 import Image from "next/image";
 import { createClientComponentClient } from "@/lib/supabase-client";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter();
   const supabase = createClientComponentClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: undefined }, // Sin confirmación
+    });
     setLoading(false);
     if (error) {
       setError(error.message);
     } else {
-      router.push("/");
+      setSuccess("¡Registro exitoso! Ahora puedes iniciar sesión.");
+      setTimeout(() => router.push("/login"), 1500);
     }
   };
 
   return (
     <div className="relative min-h-screen flex items-center justify-center bg-black">
       <Image
-        src="/images/hero_gym.jpg" // Cambia por la ruta de tu imagen
-        alt="Login Hero"
+        src="/images/hero_gym.jpg"
+        alt="Register Hero"
         fill
         className="object-cover object-top absolute inset-0 z-0 grayscale"
         priority
@@ -49,7 +56,7 @@ export default function LoginPage() {
           DO IT NOW
         </span>
         <form
-          onSubmit={handleLogin}
+          onSubmit={handleRegister}
           className="w-full bg-black/70 rounded-2xl p-8 shadow-2xl flex flex-col gap-4"
         >
           <input
@@ -67,6 +74,7 @@ export default function LoginPage() {
             className="w-full px-4 py-3 rounded-lg bg-white/10 text-white border-2 border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-300 font-medium"
           />
           {error && <p className="text-red-400 text-sm text-center">{error}</p>}
+          {success && <p className="text-green-400 text-sm text-center">{success}</p>}
           <button
             type="submit"
             disabled={loading}
@@ -78,18 +86,18 @@ export default function LoginPage() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                 </svg>
-                Entrando...
+                Registrando...
               </span>
             ) : (
-              'ENTRAR'
+              'REGISTRARME'
             )}
           </button>
         </form>
         <div className="mt-6 text-center">
-          <span className="text-gray-300">¿No tienes cuenta? </span>
-          <a href="/register" className="text-blue-400 font-bold hover:underline transition">Regístrate</a>
+          <span className="text-gray-300">¿Ya tienes cuenta? </span>
+          <a href="/login" className="text-blue-400 font-bold hover:underline transition">Entrar</a>
         </div>
       </div>
     </div>
   );
-}
+} 

@@ -13,6 +13,7 @@ export type Database = {
         Row: {
           id: number
           created_at: string
+          updated_at: string
           date: string | null
           name: string | null
           reps: number | null
@@ -25,6 +26,7 @@ export type Database = {
         Insert: {
           id?: number
           created_at?: string
+          updated_at?: string
           date?: string | null
           name?: string | null
           reps?: number | null
@@ -37,6 +39,7 @@ export type Database = {
         Update: {
           id?: number
           created_at?: string
+          updated_at?: string
           date?: string | null
           name?: string | null
           reps?: number | null

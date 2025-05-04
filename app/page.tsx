@@ -1,5 +1,3 @@
-'use client';
-
 import { Suspense } from 'react';
 import WorkoutTracker from '@/components/workout-tracker';
 import { Skeleton } from '@/components/ui/skeleton';
