@@ -89,13 +89,11 @@ export default function WorkoutTracker() {
             id: exercise.id,
             name: exercise.name ?? "",
             type: "default",
-            sets: [
-              {
-                reps: exercise.reps ?? 0,
-                weight: exercise.weight ?? 0,
-                completed: false,
-              },
-            ],
+            sets: Array(exercise.sets || 1).fill(null).map(() => ({
+              reps: exercise.reps ?? 0,
+              weight: exercise.weight ?? 0,
+              completed: false,
+            })),
           };
 
           (plan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(ex);

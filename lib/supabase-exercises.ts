@@ -16,7 +16,7 @@ export async function addExerciseToSupabase(
   week: number,
   day: string
 ) {
-  const { error } = await supabase.from("exercises").insert([
+  const { data, error } = await supabase.from("exercises").insert([
     {
       name,
       sets,
@@ -26,10 +26,17 @@ export async function addExerciseToSupabase(
       date,
       week,
       day,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     },
-  ]);
+  ]).select();
 
-  if (error) console.error("❌ Error inserting exercise:", error.message);
+  if (error) {
+    console.error("❌ Error inserting exercise:", error.message);
+    return null;
+  }
+
+  return data?.[0];
 }
 
 // ✅ Obtiene solo los ejercicios de ese usuario
@@ -56,10 +63,16 @@ export async function getExercisesFromSupabase(user_id: string, week?: number, d
 
   // Asegurarse de que los datos tengan el formato correcto
   return data?.map(exercise => ({
-    ...exercise,
+    id: exercise.id,
+    name: exercise.name || "",
     reps: exercise.reps || 0,
     weight: exercise.weight || 0,
-    sets: exercise.sets || 1
+    sets: exercise.sets || 1,
+    week: exercise.week || 1,
+    day: exercise.day || "monday",
+    user_id: exercise.user_id,
+    created_at: exercise.created_at,
+    updated_at: exercise.updated_at
   })) || [];
 }
 
@@ -81,7 +94,7 @@ export async function updateExerciseInSupabase(
   week: number,
   day: string
 ) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("exercises")
     .update({
       name,
@@ -92,7 +105,13 @@ export async function updateExerciseInSupabase(
       day,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select();
 
-  if (error) console.error("❌ Error updating exercise:", error.message);
+  if (error) {
+    console.error("❌ Error updating exercise:", error.message);
+    return null;
+  }
+
+  return data?.[0];
 }
