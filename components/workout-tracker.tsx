@@ -63,13 +63,7 @@ export default function WorkoutTracker() {
       const data = await getExercisesFromSupabase(userId, currentWeek, currentDay);
       const plan = generateInitialWorkoutPlan();
 
-      // Limpiar los ejercicios del día actual
-      const currentWeekPlan = plan.weeks[currentWeek - 1];
-      const currentDayKey = currentDay as keyof WeekPlan;
-      if (currentWeekPlan && currentWeekPlan[currentDayKey]) {
-        currentWeekPlan[currentDayKey].exercises = [];
-      }
-
+      // No limpiar los ejercicios existentes, solo agregar o actualizar
       (data as ExerciseRow[]).forEach((exercise) => {
         const weekIndex = (exercise.week ?? 1) - 1;
         const dayKey = (exercise.day ?? "monday") as keyof WeekPlan;
@@ -78,7 +72,11 @@ export default function WorkoutTracker() {
           plan.weeks[weekIndex] &&
           plan.weeks[weekIndex][dayKey]
         ) {
-          const ex: Exercise = {
+          const existingExerciseIndex = plan.weeks[weekIndex][dayKey].exercises.findIndex(
+            (ex) => ex.id === exercise.id
+          );
+
+          const newExercise: Exercise = {
             id: exercise.id,
             name: exercise.name ?? "",
             type: "default",
@@ -89,7 +87,13 @@ export default function WorkoutTracker() {
             })),
           };
 
-          (plan.weeks[weekIndex][dayKey] as WorkoutDay).exercises.push(ex);
+          if (existingExerciseIndex >= 0) {
+            // Actualizar ejercicio existente
+            plan.weeks[weekIndex][dayKey].exercises[existingExerciseIndex] = newExercise;
+          } else {
+            // Agregar nuevo ejercicio
+            plan.weeks[weekIndex][dayKey].exercises.push(newExercise);
+          }
         }
       });
 
@@ -133,69 +137,21 @@ export default function WorkoutTracker() {
       )
       .subscribe();
 
-    // Suscripción para actualizaciones
-    const updateSubscription = supabase
-      .channel('exercises-updates')
-      .on('postgres_changes', 
-        { 
-          event: 'UPDATE', 
-          schema: 'public', 
-          table: 'exercises',
-          filter: `user_id=eq.${userId}`
-        }, 
-        async (payload: RealtimePostgresChangesPayload<Database['public']['Tables']['exercises']['Row']>) => {
-          console.log('Update received!', payload);
-          await syncExercises();
-        }
-      )
-      .subscribe();
-
-    // Suscripción para eliminaciones
-    const deleteSubscription = supabase
-      .channel('exercises-deletes')
-      .on('postgres_changes', 
-        { 
-          event: 'DELETE', 
-          schema: 'public', 
-          table: 'exercises',
-          filter: `user_id=eq.${userId}`
-        }, 
-        async (payload: RealtimePostgresChangesPayload<Database['public']['Tables']['exercises']['Row']>) => {
-          console.log('Delete received!', payload);
-          await syncExercises();
-        }
-      )
-      .subscribe();
-
     return () => {
       subscription.unsubscribe();
-      updateSubscription.unsubscribe();
-      deleteSubscription.unsubscribe();
     };
   }, [currentWeek, currentDay, userId]);
 
   if (!mounted) return null;
 
   const handleAddExercise = async (exercise: Exercise) => {
-    setWorkoutPlan((prev) => {
-      const updatedPlan = { ...prev };
-      const currentWeekPlan: WeekPlan = updatedPlan.weeks[currentWeek - 1];
-      const currentDayPlan: WorkoutDay = {
-        ...currentWeekPlan[currentDay as keyof WeekPlan],
-      };
+    if (!userId) return;
 
-      currentDayPlan.exercises = [...currentDayPlan.exercises, exercise];
-      currentWeekPlan[currentDay as keyof WeekPlan] = currentDayPlan;
-      updatedPlan.weeks[currentWeek - 1] = currentWeekPlan;
+    const firstSet = exercise.sets[0];
+    const date = new Date().toISOString();
 
-      return updatedPlan;
-    });
-
-    if (userId) {
-      const firstSet = exercise.sets[0];
-      const date = new Date().toISOString();
-
-      await addExerciseToSupabase(
+    try {
+      const newExercise = await addExerciseToSupabase(
         exercise.name,
         exercise.sets.length,
         firstSet?.reps || 0,
@@ -205,6 +161,29 @@ export default function WorkoutTracker() {
         currentWeek,
         currentDay
       );
+
+      if (newExercise) {
+        setWorkoutPlan((prev) => {
+          const updatedPlan = { ...prev };
+          const currentWeekPlan: WeekPlan = updatedPlan.weeks[currentWeek - 1];
+          const currentDayPlan: WorkoutDay = {
+            ...currentWeekPlan[currentDay as keyof WeekPlan],
+          };
+
+          const exerciseWithId: Exercise = {
+            ...exercise,
+            id: newExercise.id,
+          };
+
+          currentDayPlan.exercises = [...currentDayPlan.exercises, exerciseWithId];
+          currentWeekPlan[currentDay as keyof WeekPlan] = currentDayPlan;
+          updatedPlan.weeks[currentWeek - 1] = currentWeekPlan;
+
+          return updatedPlan;
+        });
+      }
+    } catch (error) {
+      console.error("Error adding exercise:", error);
     }
 
     setIsAddExerciseOpen(false);
