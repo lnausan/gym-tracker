@@ -25,7 +25,7 @@ import type {
   WorkoutDay,
   WeekPlan,
 } from "@/types/workout";
-import { generateInitialWorkoutPlan } from "@/lib/workout-utils";
+import { generateInitialWorkoutPlan, addWeekToPlan } from "@/lib/workout-utils";
 import ProgressTracker from "@/components/progress-tracker";
 import type { Database } from "@/types/database";
 import { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
@@ -270,12 +270,23 @@ export default function WorkoutTracker() {
   const weekProgress = calculateWeekProgress(currentWeek - 1);
   const overallProgress = calculateOverallProgress();
 
+  const handleNextWeek = () => {
+    setCurrentWeek((prev) => {
+      const nextWeek = prev + 1;
+      // Si la semana siguiente no existe, la creamos
+      if (nextWeek > workoutPlan.weeks.length) {
+        setWorkoutPlan((currentPlan) => addWeekToPlan(currentPlan));
+      }
+      return nextWeek;
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="space-y-1">
           <h2 className="text-2xl font-semibold tracking-tight text-blue-700">
-            12-Week Workout Plan
+            Weekly Workout Tracker
           </h2>
           <p className="text-sm text-blue-600">
             Track your progress and stay consistent
@@ -305,19 +316,18 @@ export default function WorkoutTracker() {
             disabled={currentWeek === 1}
             className="border-blue-300 hover:bg-blue-50"
           >
-            Previous
+            Previous Week
           </Button>
           <span className="font-medium text-blue-700">
-            Week {currentWeek} of 12
+            Week {currentWeek}
           </span>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setCurrentWeek((prev) => Math.min(12, prev + 1))}
-            disabled={currentWeek === 12}
+            onClick={handleNextWeek}
             className="border-blue-300 hover:bg-blue-50"
           >
-            Next
+            Next Week
           </Button>
         </div>
       </div>
@@ -328,7 +338,7 @@ export default function WorkoutTracker() {
         onValueChange={setCurrentDay}
         className="w-full"
       >
-        <TabsList className="grid w-full grid-cols-7 h-auto bg-blue-100">
+        <TabsList className="grid w-full grid-cols-7 h-auto bg-blue-50/50 backdrop-blur-sm">
           {daysOfWeek.map((day) => (
             <TabsTrigger
               key={day}
@@ -342,7 +352,7 @@ export default function WorkoutTracker() {
 
         {daysOfWeek.map((day) => (
           <TabsContent key={day} value={day} className="mt-4">
-            <Card className="border-blue-200">
+            <Card className="border-blue-100 bg-gradient-to-br from-blue-50/50 to-white backdrop-blur-sm">
               <CardContent className="p-4 pt-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium capitalize text-blue-700">

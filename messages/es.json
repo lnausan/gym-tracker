@@ -1,0 +1,21 @@
+{
+  "appName": "GYM TRACK LNAUSAN",
+  "slogan": "HAZLO AHORA",
+  "login": {
+    "email": "Correo electrónico",
+    "password": "Contraseña",
+    "enter": "Entrar",
+    "no_account": "¿No tienes cuenta?",
+    "register": "Regístrate"
+  },
+  "register": {
+    "register": "Registrarme",
+    "success": "¡Registro exitoso! Ahora puedes iniciar sesión.",
+    "already_account": "¿Ya tienes cuenta?",
+    "login": "Entrar"
+  },
+  "home": {
+    "welcome": "Bienvenido a Gym Track Lnausan",
+    "description": "¡Lleva el control de tus entrenamientos y alcanza tus metas!"
+  }
+} 

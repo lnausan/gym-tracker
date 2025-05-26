@@ -45,7 +45,9 @@ export default function ExerciseList({ exercises, onUpdateExercise, onDeleteExer
           updatedExercise.name,
           updatedExercise.sets.length,
           firstSet?.reps || 0,
-          firstSet?.weight || 0
+          firstSet?.weight || 0,
+          currentWeek,
+          currentDay
         );
       } else {
         // Si es un nuevo ejercicio, crearlo
