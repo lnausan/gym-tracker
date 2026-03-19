@@ -131,8 +131,23 @@
     }
   </style>
 
-  <!-- Supabase JS -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Firebase (Auth) - compat build -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script>
+    // Pegá acá tu config (Firebase Console → Project settings → Your apps → Firebase SDK snippet → Config)
+    // NOTA: en sitios estáticos, estas keys son públicas; protegé tu proyecto con reglas/allowed domains.
+    window.FIREBASE_CONFIG = window.FIREBASE_CONFIG || {
+      apiKey: "AIzaSyBGH-wHSovsA5o3zuVuyq1v-JhxCm2Wh6U",
+      authDomain: "gym-tracker-6d918.firebaseapp.com",
+      projectId: "gym-tracker-6d918",
+      appId: "1:461257443259:web:5e150937ff3b97c935269e",
+      // opcionales:
+      storageBucket: "gym-tracker-6d918.firebasestorage.app",
+      messagingSenderId: "461257443259",
+      measurementId: "G-TJD8G1GD8K",
+    };
+  </script>
   <!-- React 18 -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>

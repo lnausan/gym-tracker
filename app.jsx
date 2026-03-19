@@ -5,10 +5,26 @@
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
-// ─── SUPABASE CLIENT ────────────────────────────────────────
-const SUPABASE_URL = 'https://dsxaqfqcisazchbasdhi.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRzeGFxZnFjaXNhemNoYmFzZGhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU4OTQ3NTEsImV4cCI6MjA2MTQ3MDc1MX0.-YtWFFzjkQBQf-7pzyrpRnItwyc4n6aaHzutPtXQPhc';
-const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// ─── FIREBASE AUTH ──────────────────────────────────────────
+function getFirebaseConfig() {
+  const cfg = (window.FIREBASE_CONFIG || {});
+  return cfg;
+}
+
+function ensureFirebaseInitialized() {
+  if (!window.firebase) throw new Error('Firebase no cargó. Revisá los scripts en index.html.');
+  if (firebase.apps && firebase.apps.length > 0) return;
+  const cfg = getFirebaseConfig();
+  if (!cfg.apiKey || !cfg.authDomain || !cfg.projectId || !cfg.appId) {
+    throw new Error('Firebase no está configurado. Pegá FIREBASE_CONFIG en index.html.');
+  }
+  firebase.initializeApp(cfg);
+}
+
+function getAuth() {
+  ensureFirebaseInitialized();
+  return firebase.auth();
+}
 
 // ─── STORAGE LAYER ──────────────────────────────────────────
 const storage = {
@@ -1166,30 +1182,28 @@ function LoginScreen({ onAuth }) {
 
     try {
       if (mode === 'login') {
-        const { data, error: err } = await supabaseClient.auth.signInWithPassword({ email, password });
-        if (err) throw err;
-        onAuth(data.user);
+        const auth = getAuth();
+        const cred = await auth.signInWithEmailAndPassword(email, password);
+        onAuth(cred.user);
       } else if (mode === 'register') {
-        const { data, error: err } = await supabaseClient.auth.signUp({ email, password });
-        if (err) throw err;
-        if (data.user && !data.user.confirmed_at && !data.session) {
-          setMessage('Te enviamos un email de confirmación. Revisá tu bandeja de entrada.');
-        } else {
-          onAuth(data.user);
-        }
+        const auth = getAuth();
+        const cred = await auth.createUserWithEmailAndPassword(email, password);
+        // Si querés verificación por email, activala en Firebase y descomentá:
+        // await cred.user.sendEmailVerification();
+        onAuth(cred.user);
       } else if (mode === 'forgot') {
-        const { error: err } = await supabaseClient.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin,
-        });
-        if (err) throw err;
+        const auth = getAuth();
+        await auth.sendPasswordResetEmail(email);
         setMessage('Te enviamos un email para restablecer tu contraseña.');
       }
     } catch (err) {
-      const msg = err.message || 'Error desconocido';
-      if (msg.includes('Invalid login')) setError('Email o contraseña incorrectos');
-      else if (msg.includes('already registered')) setError('Este email ya está registrado');
-      else if (msg.includes('Password should be')) setError('La contraseña debe tener al menos 6 caracteres');
-      else if (msg.includes('valid email')) setError('Ingresá un email válido');
+      const code = err?.code || '';
+      const msg = err?.message || 'Error desconocido';
+      if (code === 'auth/invalid-login-credentials' || code === 'auth/wrong-password' || code === 'auth/user-not-found') setError('Email o contraseña incorrectos');
+      else if (code === 'auth/email-already-in-use') setError('Este email ya está registrado');
+      else if (code === 'auth/weak-password') setError('La contraseña debe tener al menos 6 caracteres');
+      else if (code === 'auth/invalid-email') setError('Ingresá un email válido');
+      else if (msg.includes('Firebase no está configurado')) setError(msg);
       else setError(msg);
     }
     setLoading(false);
@@ -1310,14 +1324,19 @@ function App() {
 
   // Check auth session on mount
   useEffect(() => {
-    supabaseClient.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user || null);
+    let unsubscribe = null;
+    try {
+      const auth = getAuth();
+      unsubscribe = auth.onAuthStateChanged((u) => {
+        setUser(u || null);
+        setAuthLoading(false);
+      });
+    } catch (e) {
+      console.error(e);
+      setUser(null);
       setAuthLoading(false);
-    });
-    const { data: { subscription } } = supabaseClient.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-    });
-    return () => subscription.unsubscribe();
+    }
+    return () => { if (unsubscribe) unsubscribe(); };
   }, []);
 
   // Load data once authenticated
@@ -1357,7 +1376,12 @@ function App() {
   const totalSessions = logs.length;
 
   const handleLogout = async () => {
-    await supabaseClient.auth.signOut();
+    try {
+      const auth = getAuth();
+      await auth.signOut();
+    } catch (e) {
+      console.error(e);
+    }
     setUser(null);
     setRoutines(null);
     setLogs([]);
