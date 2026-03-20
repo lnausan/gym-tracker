@@ -2,5 +2,10 @@
   "name": "gym-tracker",
   "version": "2.0.0",
   "private": true,
-  "description": "Gym Tracker — Carga Progresiva. SPA con React + Tailwind CSS."
+  "description": "Gym Tracker — Carga Progresiva. SPA con React + Tailwind CSS.",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "start": "node scripts/dev-server.mjs",
+    "build": "echo \"Static site (no build step needed)\""
+  }
 }

@@ -114,6 +114,20 @@ const DEFAULT_ROUTINES = {
   ],
 };
 
+// ─── DEFAULT CARDIO SETTINGS ───────────────────────────────
+// Se guarda separado de las rutinas de pesas para no romper la estructura existente.
+const DEFAULT_CARDIO_SETTINGS = (() => {
+  const map = {};
+  DAY_CONFIG.forEach(d => {
+    map[d.key] = { enabled: false, minutes: 30, type: 'LISS' };
+  });
+  return map;
+})();
+
+function makeCardioId() {
+  return `c_${uid()}`;
+}
+
 // ─── REST TIPS ──────────────────────────────────────────────
 const REST_TIPS = [
   'Estirá cuádriceps 🦵', 'Tomá agua 💧', 'Respirá profundo 🫁',
@@ -315,6 +329,7 @@ function MiniSparkline({ data, color = '#3b82f6', width = 120, height = 32 }) {
 function BottomTabBar({ active, onChange }) {
   const tabs = [
     { key: 'entrenar',  icon: '💪', label: 'Entrenar' },
+    { key: 'cardio',    icon: '🏃‍♂️', label: 'Cardio' },
     { key: 'historial', icon: '📊', label: 'Historial' },
     { key: 'rutina',    icon: '⚙️', label: 'Rutina' },
   ];
@@ -632,7 +647,7 @@ function WorkoutSummary({ session, logs, onClose }) {
   );
 }
 
-function EntrenarView({ routines, logs, activeDay, onDayChange, onSaveLog }) {
+function EntrenarView({ routines, cardioSettings, logs, activeDay, onDayChange, onSaveLog }) {
   const [workoutActive, setWorkoutActive] = useState(false);
   const [workoutExercises, setWorkoutExercises] = useState([]);
   const [startTime, setStartTime] = useState(null);
@@ -641,6 +656,7 @@ function EntrenarView({ routines, logs, activeDay, onDayChange, onSaveLog }) {
 
   const dayConfig = DAY_MAP[activeDay];
   const dayRoutine = routines[activeDay] || [];
+  const cardioCfg = cardioSettings?.[activeDay] || DEFAULT_CARDIO_SETTINGS[activeDay];
 
   const startWorkout = () => {
     const exercises = dayRoutine.map(ex => {
@@ -701,7 +717,8 @@ function EntrenarView({ routines, logs, activeDay, onDayChange, onSaveLog }) {
         name: ex.name,
         sets: ex.sets.filter(s => (s.kg > 0) || (s.reps > 0)).map(s => ({ setType: s.setType, kg: s.kg || 0, reps: s.reps || 0, rpe: s.rpe })),
         observation: ex.observation || ''
-      })).filter(ex => ex.sets.length > 0)
+      })).filter(ex => ex.sets.length > 0),
+      // Cardio se carga por separado en la pestaña "Cardio"
     };
     onSaveLog(session);
     setSummary(session);
@@ -726,6 +743,24 @@ function EntrenarView({ routines, logs, activeDay, onDayChange, onSaveLog }) {
 
       {!workoutActive ? (
         <div className="px-4 space-y-3">
+          {cardioCfg?.enabled && (
+            <div className="glass rounded-2xl p-4" style={{ borderColor: `${dayConfig.color}33`, background: `${dayConfig.color}0a` }}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-bold text-sm">🏃‍♂️ Cardio</p>
+                  <p className="text-xs text-white/40 mt-0.5">Lo cargás por separado (pestaña Cardio)</p>
+                  <p className="text-[11px] text-white/25 italic mt-1">
+                    Meta: {cardioCfg.minutes} min · {cardioCfg.type}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] px-2 py-0.5 rounded-md" style={{ background: `${dayConfig.color}15`, color: dayConfig.color }}>
+                    Checklist aparte
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
           {dayRoutine.map((ex, i) => {
             const last = getLastSession(logs, activeDay, ex.name);
             const lastSets = last ? last.exercise.sets : [];
@@ -768,6 +803,12 @@ function EntrenarView({ routines, logs, activeDay, onDayChange, onSaveLog }) {
         </div>
       ) : (
         <div className="px-4 space-y-3">
+          {cardioCfg?.enabled && (
+            <div className="glass rounded-2xl p-4" style={{ borderColor: `${dayConfig.color}33`, background: `${dayConfig.color}0a` }}>
+              <p className="font-bold text-sm">🏃‍♂️ Cardio</p>
+              <p className="text-xs text-white/40 mt-0.5">Se registra en la pestaña Cardio (otro horario).</p>
+            </div>
+          )}
           {workoutExercises.map((ex, i) => (
             <WorkoutExercise
               key={i}
@@ -1012,13 +1053,19 @@ function RutinaExerciseEditor({ exercise, index, total, dayColor, onSave, onDele
   );
 }
 
-function RutinaView({ routines, onUpdateRoutines, activeDay, onDayChange }) {
+function RutinaView({ routines, cardioSettings, onUpdateRoutines, onUpdateCardioSettings, activeDay, onDayChange }) {
   const [adding, setAdding] = useState(false);
   const [newExercise, setNewExercise] = useState({ name: '', topSet: '', backOff: '—', rest: '2\'', note: '' });
   const [confirmReset, setConfirmReset] = useState(false);
 
   const dayConfig = DAY_MAP[activeDay];
   const dayRoutine = routines[activeDay] || [];
+  const cardioCfg = cardioSettings?.[activeDay] || DEFAULT_CARDIO_SETTINGS[activeDay];
+
+  const saveCardio = (updated) => {
+    const next = { ...(cardioSettings || DEFAULT_CARDIO_SETTINGS), [activeDay]: updated };
+    onUpdateCardioSettings(next);
+  };
 
   const saveRoutine = (newDayRoutine) => {
     const updated = { ...routines, [activeDay]: newDayRoutine };
@@ -1078,6 +1125,51 @@ function RutinaView({ routines, onUpdateRoutines, activeDay, onDayChange }) {
       </div>
 
       <div className="px-4 space-y-3">
+        <div className="glass rounded-2xl p-4 space-y-3" style={{ borderColor: `${dayConfig.color}33`, background: `${dayConfig.color}0a` }}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-bold text-sm">🏃‍♂️ Cardio</p>
+              <p className="text-xs text-white/40 mt-0.5">Elegí en qué días querés hacerlo.</p>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-white/70 select-none">
+              <input
+                type="checkbox"
+                checked={!!cardioCfg.enabled}
+                onChange={e => saveCardio({ ...cardioCfg, enabled: e.target.checked })}
+                className="w-4 h-4 rounded border-white/20 accent-green-400"
+              />
+              Activar
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-white/30 uppercase mb-1 block">Minutos</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                step="5"
+                min="0"
+                value={cardioCfg.minutes}
+                onChange={e => saveCardio({ ...cardioCfg, minutes: parseInt(e.target.value) || 0 })}
+                disabled={!cardioCfg.enabled}
+                className="w-full h-10 rounded-lg bg-white/10 px-3 text-xs text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-white/30 uppercase mb-1 block">Tipo</label>
+              <select
+                value={cardioCfg.type}
+                onChange={e => saveCardio({ ...cardioCfg, type: e.target.value })}
+                disabled={!cardioCfg.enabled}
+                className="w-full h-10 rounded-lg bg-white/10 px-3 text-xs text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {['LISS', 'HIIT', 'Caminata', 'Bici'].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+
         {dayRoutine.map((ex, i) => (
           <RutinaExerciseEditor
             key={ex.id}
@@ -1157,6 +1249,137 @@ function RutinaView({ routines, onUpdateRoutines, activeDay, onDayChange }) {
               className="w-full py-2.5 rounded-xl bg-white/5 text-xs text-white/20 hover:text-red-400/50 transition-colors">
               🔄 Resetear a rutina original
             </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── VISTA CARDIO (CHECKLIST INDEPENDIENTE) ──────────────────
+function CardioView({ cardioSettings, cardioLogs, onSaveCardioLog, activeDay, onDayChange }) {
+  const dayConfig = DAY_MAP[activeDay];
+  const cfg = cardioSettings?.[activeDay] || DEFAULT_CARDIO_SETTINGS[activeDay];
+
+  const [done, setDone] = useState(false);
+  const [minutes, setMinutes] = useState(cfg.minutes || 30);
+  const [type, setType] = useState(cfg.type || 'LISS');
+
+  // Inicializa form cuando cambia el día
+  useEffect(() => {
+    setDone(false);
+    setMinutes(cfg.minutes || 30);
+    setType(cfg.type || 'LISS');
+  }, [activeDay]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dayLogs = useMemo(() => {
+    return (cardioLogs || []).filter(l => l.dayKey === activeDay).slice().reverse();
+  }, [cardioLogs, activeDay]);
+
+  const saveToday = () => {
+    if (!cfg.enabled) return;
+    const entry = {
+      id: makeCardioId(),
+      date: todayStr(),
+      dayKey: activeDay,
+      done: !!done,
+      minutes: minutes || cfg.minutes || 0,
+      type: type || cfg.type || 'LISS',
+    };
+    onSaveCardioLog(entry);
+    // feedback rápido
+    setDone(false);
+  };
+
+  return (
+    <div className="pb-20">
+      <DaySelector active={activeDay} onChange={onDayChange} logs={null} />
+
+      <div className="text-center py-2">
+        <h1 className="font-heading text-3xl tracking-wider" style={{ color: dayConfig.color }}>
+          🏃‍♂️ Cardio · {dayConfig.emoji} {dayConfig.title}
+        </h1>
+        {!cfg.enabled && (
+          <p className="text-xs text-white/30 mt-1">
+            Cardio desactivado para este día. Activálo en Rutina ⚙️
+          </p>
+        )}
+      </div>
+
+      <div className="px-4 space-y-3">
+        <div className="glass rounded-2xl p-4 space-y-3" style={{ borderColor: `${dayConfig.color}33`, background: `${dayConfig.color}0a` }}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-bold text-sm">Checklist (otro horario)</p>
+              <p className="text-xs text-white/40 mt-0.5">Cargá tu cardio cuando lo hagas.</p>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-white/70 select-none">
+              <input
+                type="checkbox"
+                checked={done}
+                onChange={e => setDone(e.target.checked)}
+                disabled={!cfg.enabled}
+                className="w-4 h-4 rounded border-white/20 accent-green-400 disabled:opacity-40"
+              />
+              Hecho
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-white/30 uppercase mb-1 block">Minutos</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                step="5"
+                min="0"
+                value={minutes}
+                onChange={e => setMinutes(parseInt(e.target.value) || 0)}
+                disabled={!cfg.enabled}
+                className="w-full h-10 rounded-lg bg-white/10 px-3 text-xs text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-white/30 uppercase mb-1 block">Tipo</label>
+              <select
+                value={type}
+                onChange={e => setType(e.target.value)}
+                disabled={!cfg.enabled}
+                className="w-full h-10 rounded-lg bg-white/10 px-3 text-xs text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {['LISS', 'HIIT', 'Caminata', 'Bici'].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <button
+            onClick={saveToday}
+            disabled={!cfg.enabled}
+            className="w-full py-3 rounded-xl font-bold text-sm transition-all hover:scale-[1.02] disabled:opacity-40 disabled:hover:scale-100 text-black"
+            style={{ background: dayConfig.color }}
+          >
+            Guardar cardio de hoy
+          </button>
+        </div>
+
+        <div className="glass rounded-2xl p-4">
+          <p className="font-bold text-sm mb-2">Historial (este día)</p>
+          {dayLogs.length === 0 ? (
+            <p className="text-xs text-white/30">Todavía no cargaste cardio para este día.</p>
+          ) : (
+            <div className="space-y-2">
+              {dayLogs.slice(0, 12).map((l) => (
+                <div key={l.id} className="px-3 py-2 rounded-xl bg-white/5 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-white/30">{l.date}</p>
+                    <p className="text-sm font-bold" style={{ color: dayConfig.color }}>
+                      {l.minutes} min · {l.type}
+                    </p>
+                  </div>
+                  <span className="text-sm">{l.done ? '✅' : '—'}</span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -1320,6 +1543,8 @@ function App() {
   const [activeTab, setActiveTab] = useState('entrenar');
   const [activeDay, setActiveDay] = useState(() => getCurrentDayKey());
   const [routines, setRoutines] = useState(null);
+  const [cardioSettings, setCardioSettings] = useState(null);
+  const [cardioLogs, setCardioLogs] = useState([]);
   const [logs, setLogs] = useState([]);
 
   // Check auth session on mount
@@ -1345,12 +1570,18 @@ function App() {
     (async () => {
       try {
         const routinesData = await storage.get('gym-routines');
+        const cardioData = await storage.get('gym-cardio');
+        const cardioLogsData = await storage.get('gym-cardio-logs');
         const logsData = await storage.get('gym-logs');
         setRoutines(routinesData ? JSON.parse(routinesData.value) : DEFAULT_ROUTINES);
+        setCardioSettings(cardioData ? JSON.parse(cardioData.value) : DEFAULT_CARDIO_SETTINGS);
+        setCardioLogs(cardioLogsData ? JSON.parse(cardioLogsData.value) : []);
         setLogs(logsData ? JSON.parse(logsData.value) : []);
       } catch (e) {
         console.error('Error loading data:', e);
         setRoutines(DEFAULT_ROUTINES);
+        setCardioSettings(DEFAULT_CARDIO_SETTINGS);
+        setCardioLogs([]);
         setLogs([]);
       }
       setLoading(false);
@@ -1361,6 +1592,20 @@ function App() {
   const updateRoutines = useCallback(async (newRoutines) => {
     setRoutines(newRoutines);
     await storage.set('gym-routines', JSON.stringify(newRoutines));
+  }, []);
+
+  // Save cardio settings per day
+  const updateCardioSettings = useCallback(async (newCardioSettings) => {
+    setCardioSettings(newCardioSettings);
+    await storage.set('gym-cardio', JSON.stringify(newCardioSettings));
+  }, []);
+
+  const saveCardioLog = useCallback(async (entry) => {
+    setCardioLogs(prev => {
+      const updated = [...prev, entry];
+      storage.set('gym-cardio-logs', JSON.stringify(updated));
+      return updated;
+    });
   }, []);
 
   // Save log
@@ -1384,6 +1629,8 @@ function App() {
     }
     setUser(null);
     setRoutines(null);
+    setCardioSettings(null);
+    setCardioLogs([]);
     setLogs([]);
   };
 
@@ -1405,7 +1652,7 @@ function App() {
   }
 
   // Data loading
-  if (loading || !routines) {
+  if (loading || !routines || !cardioSettings) {
     return (
       <div className="h-screen flex items-center justify-center">
         <div className="text-center">
@@ -1443,13 +1690,24 @@ function App() {
       <main>
         {activeTab === 'entrenar' && (
           <EntrenarView routines={routines} logs={logs} activeDay={activeDay}
+            cardioSettings={cardioSettings}
             onDayChange={setActiveDay} onSaveLog={saveLog} />
+        )}
+        {activeTab === 'cardio' && (
+          <CardioView
+            cardioSettings={cardioSettings}
+            cardioLogs={cardioLogs}
+            onSaveCardioLog={saveCardioLog}
+            activeDay={activeDay}
+            onDayChange={setActiveDay}
+          />
         )}
         {activeTab === 'historial' && (
           <HistorialView logs={logs} activeDay={activeDay} onDayChange={setActiveDay} />
         )}
         {activeTab === 'rutina' && (
-          <RutinaView routines={routines} onUpdateRoutines={updateRoutines}
+          <RutinaView routines={routines} cardioSettings={cardioSettings} onUpdateCardioSettings={updateCardioSettings}
+            onUpdateRoutines={updateRoutines}
             activeDay={activeDay} onDayChange={setActiveDay} />
         )}
       </main>
