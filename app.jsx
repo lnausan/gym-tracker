@@ -28,7 +28,7 @@ function getAuth() {
 
 // ─── FIRESTORE: esquema y helpers ───────────────────────────
 // Documento: userData/{uid}
-// Campos: schemaVersion, routines, cardioSettings, workoutLogs, cardioLogs, updatedAt
+// Campos: schemaVersion, routines, cardioSettings, dayPreferences, trainingWeekDays, workoutLogs, cardioLogs, updatedAt
 // Ver FIRESTORE.md
 const DATA_SCHEMA_VERSION = 1;
 const USER_DATA_COLLECTION = 'userData';
@@ -38,7 +38,7 @@ function getDb() {
   return firebase.firestore();
 }
 
-const LOCAL_GYM_KEYS = ['gym-routines', 'gym-cardio', 'gym-cardio-logs', 'gym-logs'];
+const LOCAL_GYM_KEYS = ['gym-routines', 'gym-cardio', 'gym-cardio-logs', 'gym-logs', 'gym-day-preferences', 'gym-training-week'];
 
 /** Lee datos viejos de localStorage (solo migración one-shot a la nube). */
 function readLocalMigrationBundle() {
@@ -47,17 +47,21 @@ function readLocalMigrationBundle() {
     const cardio = localStorage.getItem('gym-cardio');
     const cardioLogs = localStorage.getItem('gym-cardio-logs');
     const logs = localStorage.getItem('gym-logs');
-    const hasAny = !!(routines || cardio || cardioLogs || logs);
+    const dayPrefs = localStorage.getItem('gym-day-preferences');
+    const trainingWeek = localStorage.getItem('gym-training-week');
+    const hasAny = !!(routines || cardio || cardioLogs || logs || dayPrefs || trainingWeek);
     return {
       hasAny,
       routines: routines ? JSON.parse(routines) : null,
       cardioSettings: cardio ? JSON.parse(cardio) : null,
+      dayPreferences: dayPrefs ? JSON.parse(dayPrefs) : null,
+      trainingWeekDays: trainingWeek != null && trainingWeek !== '' ? JSON.parse(trainingWeek) : undefined,
       cardioLogs: cardioLogs ? JSON.parse(cardioLogs) : null,
       workoutLogs: logs ? JSON.parse(logs) : null,
     };
   } catch (e) {
     console.error('readLocalMigrationBundle', e);
-    return { hasAny: false, routines: null, cardioSettings: null, cardioLogs: null, workoutLogs: null };
+    return { hasAny: false, routines: null, cardioSettings: null, dayPreferences: null, trainingWeekDays: undefined, cardioLogs: null, workoutLogs: null };
   }
 }
 
@@ -68,13 +72,21 @@ function clearLocalGymKeys() {
 }
 
 // ─── DAY CONFIG ─────────────────────────────────────────────
+/** Orden calendario (lun → dom). Podés entrenar cualquier subconjunto; el usuario elige en Rutina. */
 const DAY_CONFIG = [
-  { key: 'lunes',     label: 'LUN', emoji: '🦵', title: 'Piernas',           color: '#ef4444', optional: false },
-  { key: 'martes',    label: 'MAR', emoji: '💥', title: 'Empuje',            color: '#f97316', optional: false },
-  { key: 'miercoles', label: 'MIÉ', emoji: '🍑', title: 'Glúteo/Core',      color: '#a855f7', optional: true  },
-  { key: 'jueves',    label: 'JUE', emoji: '⚡', title: 'Full Body + Arms', color: '#22c55e', optional: false },
-  { key: 'sabado',    label: 'SÁB', emoji: '🧲', title: 'Pull',             color: '#3b82f6', optional: false },
+  { key: 'lunes',     label: 'LUN', emoji: '🦵', title: 'Piernas',           color: '#ef4444' },
+  { key: 'martes',    label: 'MAR', emoji: '💥', title: 'Empuje',            color: '#f97316' },
+  { key: 'miercoles', label: 'MIÉ', emoji: '🍑', title: 'Glúteo/Core',      color: '#a855f7' },
+  { key: 'jueves',    label: 'JUE', emoji: '⚡', title: 'Full Body + Arms', color: '#22c55e' },
+  { key: 'viernes',   label: 'VIE', emoji: '🔥', title: 'Upper / Accesorios', color: '#eab308' },
+  { key: 'sabado',    label: 'SÁB', emoji: '🧲', title: 'Pull',             color: '#3b82f6' },
+  { key: 'domingo',   label: 'DOM', emoji: '🌅', title: 'Extra / Full light', color: '#64748b' },
 ];
+
+/** Días que usaba la app antes (misma rutina por defecto). Migración y fallback. */
+const LEGACY_TRAINING_WEEK_DAYS = ['lunes', 'martes', 'miercoles', 'jueves', 'sabado'];
+
+const WEEK_ORDER = DAY_CONFIG.map((d) => d.key);
 
 const DAY_MAP = {};
 DAY_CONFIG.forEach(d => DAY_MAP[d.key] = d);
@@ -116,6 +128,13 @@ const DEFAULT_ROUTINES = {
     { id: 'j7', name: 'Tríceps uni copa',                 topSet: '2×10–15',          backOff: '—',                             rest: '90s',       note: '',                                      order: 6 },
     { id: 'j8', name: 'Plancha',                          topSet: '3×45–60s',         backOff: '—',                             rest: '—',         note: '',                                      order: 7 },
   ],
+  viernes: [
+    { id: 'v1', name: 'Press inclinado mancuernas',       topSet: '40 kg × 8–10',     backOff: '36 kg × 10–12',                rest: '2\'',       note: 'Día extra: editá a tu gusto',          order: 0 },
+    { id: 'v2', name: 'Remo pecho soporte / T-bar',       topSet: '50 × 8–10',        backOff: '45 × 12',                      rest: '2\'',       note: '',                                      order: 1 },
+    { id: 'v3', name: 'Elevaciones laterales',          topSet: '3×12–20',          backOff: '—',                             rest: '60s',       note: '',                                      order: 2 },
+    { id: 'v4', name: 'Curl barra / mancuernas',          topSet: '2×8–12',           backOff: '—',                             rest: '90s',       note: '',                                      order: 3 },
+    { id: 'v5', name: 'Tríceps cuerda',                   topSet: '2×12–15',          backOff: '—',                             rest: '90s',       note: '',                                      order: 4 },
+  ],
   sabado: [
     { id: 's1', name: 'Peso muerto',                      topSet: '70 × 4–6',         backOff: '60 × 6–8',                     rest: '3\'',       note: 'Calidad > fatiga',                      order: 0 },
     { id: 's2', name: 'Jalón / dominadas',                topSet: '60 × 8',           backOff: '50 × 12',                      rest: '2\'',       note: '',                                      order: 1 },
@@ -124,6 +143,12 @@ const DEFAULT_ROUTINES = {
     { id: 's5', name: 'Curl barra Z',                     topSet: '25–30 × 6–10',     backOff: '20–25 × 10–12',                rest: '90s',       note: '',                                      order: 4 },
     { id: 's6', name: 'Curl inclinado / cable',           topSet: '2×10–15',          backOff: '—',                             rest: '60–90s',    note: '',                                      order: 5 },
     { id: 's7', name: 'Ab wheel / máquina',               topSet: '3×10–15',          backOff: '—',                             rest: '—',         note: '',                                      order: 6 },
+  ],
+  domingo: [
+    { id: 'd1', name: 'Caminata inclinada / elíptica',   topSet: '20–30 min',        backOff: '—',                             rest: '—',         note: 'Opcional: cardio + movilidad',         order: 0 },
+    { id: 'd2', name: 'Sentadilla ligera / hack',        topSet: '3×12–15',          backOff: '—',                             rest: '90s',       note: '',                                      order: 1 },
+    { id: 'd3', name: 'Remo con mancuerna',              topSet: '3×10–12',          backOff: '—',                             rest: '90s',       note: '',                                      order: 2 },
+    { id: 'd4', name: 'Estiramientos / foam roller',     topSet: '10–15 min',        backOff: '—',                             rest: '—',         note: '',                                      order: 3 },
   ],
 };
 
@@ -136,6 +161,85 @@ const DEFAULT_CARDIO_SETTINGS = (() => {
   });
   return map;
 })();
+
+/** Por día: si el usuario marca “opcional” (OPC), solo como referencia visual. Por defecto ninguno. */
+const DEFAULT_DAY_PREFERENCES = (() => {
+  const map = {};
+  DAY_CONFIG.forEach((d) => {
+    map[d.key] = { optional: false };
+  });
+  return map;
+})();
+
+/** Combina datos de Firestore con defaults (por si falta un día o el campo es viejo). */
+function mergeDayPreferences(raw) {
+  const merged = { ...DEFAULT_DAY_PREFERENCES };
+  if (!raw || typeof raw !== 'object') return merged;
+  for (const d of DAY_CONFIG) {
+    const k = d.key;
+    const v = raw[k];
+    if (v && typeof v === 'object' && typeof v.optional === 'boolean') {
+      merged[k] = { ...merged[k], optional: v.optional };
+    }
+  }
+  return merged;
+}
+
+const VALID_DAY_KEYS = new Set(WEEK_ORDER);
+
+/** Ordena claves de día según la semana calendario. */
+function sortWeekDayKeys(keys) {
+  const set = new Set((keys || []).filter((k) => VALID_DAY_KEYS.has(k)));
+  return WEEK_ORDER.filter((k) => set.has(k));
+}
+
+/**
+ * Días de la semana en los que entrenás (subset de los 7). Default: los 5 históricos de la app.
+ * Mínimo 1 día.
+ */
+function mergeTrainingWeekDays(raw) {
+  if (Array.isArray(raw) && raw.length > 0) {
+    const sorted = sortWeekDayKeys(raw);
+    if (sorted.length > 0) return sorted;
+  }
+  return [...LEGACY_TRAINING_WEEK_DAYS];
+}
+
+/** Rutinas: completa claves faltantes con plantilla por defecto (nuevos días de la semana). */
+function mergeRoutinesFromFirestore(raw) {
+  const base = JSON.parse(JSON.stringify(DEFAULT_ROUTINES));
+  if (!raw || typeof raw !== 'object') return base;
+  Object.keys(base).forEach((k) => {
+    if (Array.isArray(raw[k])) base[k] = raw[k];
+  });
+  return base;
+}
+
+/** Cardio por día: completa entradas faltantes. */
+function mergeCardioSettingsFromFirestore(raw) {
+  const base = { ...DEFAULT_CARDIO_SETTINGS };
+  if (!raw || typeof raw !== 'object') return base;
+  Object.keys(base).forEach((k) => {
+    if (raw[k] && typeof raw[k] === 'object') base[k] = { ...base[k], ...raw[k] };
+  });
+  return base;
+}
+
+/**
+ * Primer día “de gym” útil para hoy según tu calendario de entrenamiento.
+ */
+function getCurrentDayKey(trainingWeekDays) {
+  const schedule = mergeTrainingWeekDays(trainingWeekDays);
+  const keyFromJs = { 0: 'domingo', 1: 'lunes', 2: 'martes', 3: 'miercoles', 4: 'jueves', 5: 'viernes', 6: 'sabado' };
+  const todayKey = keyFromJs[new Date().getDay()];
+  if (schedule.includes(todayKey)) return todayKey;
+  const startIdx = WEEK_ORDER.indexOf(todayKey);
+  for (let i = 0; i < 7; i++) {
+    const k = WEEK_ORDER[(startIdx + i) % 7];
+    if (schedule.includes(k)) return k;
+  }
+  return schedule[0];
+}
 
 function makeCardioId() {
   return `c_${uid()}`;
@@ -171,21 +275,6 @@ function getWeekNumber(weekId) {
 function getWeekYear(weekId) {
   const m = weekId.match(/^(\d+)/);
   return m ? parseInt(m[1]) : 2026;
-}
-
-function getCurrentDayKey() {
-  const jsDay = new Date().getDay();
-  const map = { 1: 'lunes', 2: 'martes', 3: 'miercoles', 4: 'jueves', 6: 'sabado' };
-  if (map[jsDay]) return map[jsDay];
-  const order = ['lunes', 'martes', 'miercoles', 'jueves', 'sabado'];
-  const dayNums = [1, 2, 3, 4, 6];
-  let closest = 'lunes';
-  let minDist = 7;
-  dayNums.forEach((dn, i) => {
-    const dist = ((dn - jsDay) + 7) % 7;
-    if (dist < minDist) { minDist = dist; closest = order[i]; }
-  });
-  return closest;
 }
 
 function todayStr() {
@@ -514,7 +603,7 @@ function BottomTabBar({ active, onChange }) {
 }
 
 // -- Day Selector --
-function DaySelector({ active, onChange, logs }) {
+function DaySelector({ active, onChange, logs, dayPreferences, trainingWeekDays, showAllDays }) {
   const sessionDays = useMemo(() => {
     if (!logs) return {};
     const map = {};
@@ -522,22 +611,36 @@ function DaySelector({ active, onChange, logs }) {
     return map;
   }, [logs]);
 
+  const schedule = useMemo(() => mergeTrainingWeekDays(trainingWeekDays), [trainingWeekDays]);
+
+  const daysToShow = useMemo(() => {
+    if (showAllDays) return DAY_CONFIG;
+    return schedule.map((key) => DAY_MAP[key]).filter(Boolean);
+  }, [showAllDays, schedule]);
+
   return (
     <div className="flex gap-2 justify-center px-2 py-3 overflow-x-auto scroll-hide">
-      {DAY_CONFIG.map(d => {
+      {daysToShow.map((d) => {
         const isActive = active === d.key;
         const hasDot = sessionDays[d.key];
+        const isOptional = dayPreferences?.[d.key]?.optional === true;
+        const inSchedule = schedule.includes(d.key);
+        const isOffWeek = !!showAllDays && !inSchedule;
         return (
           <button key={d.key} onClick={() => onChange(d.key)}
-            style={{ '--day-color': d.color, borderColor: isActive ? d.color : 'transparent' }}
+            style={{ '--day-color': d.color, borderColor: isActive ? d.color : 'transparent', opacity: isOffWeek ? 0.45 : undefined }}
             className={`relative flex flex-col items-center min-w-[56px] px-3 py-2 rounded-xl border-2 transition-all duration-200 ${isActive ? 'day-glow bg-white/10 scale-105' : 'bg-white/5 hover:bg-white/8'}`}>
             <span className="text-lg">{d.emoji}</span>
             <span className={`text-xs font-bold tracking-wider ${isActive ? 'text-white' : 'text-white/50'}`}>{d.label}</span>
-            {d.optional && <span className="absolute -top-1 -right-1 text-[8px] bg-purple-500/30 text-purple-300 px-1 rounded-full">OPC</span>}
+            {isOptional && <span className="absolute -top-1 -right-1 text-[8px] bg-purple-500/30 text-purple-300 px-1 rounded-full">OPC</span>}
+            {isOffWeek && <span className="absolute -top-1 left-0 text-[8px] bg-white/15 text-white/50 px-1 rounded-full">off</span>}
             {hasDot && <span className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full" style={{ background: d.color }} />}
           </button>
         );
       })}
+      {!showAllDays && schedule.length === 0 && (
+        <p className="text-xs text-white/35 px-2">Elegí al menos un día en Rutina → “Mis días de entrenamiento”.</p>
+      )}
     </div>
   );
 }
@@ -812,7 +915,7 @@ function WorkoutSummary({ session, logs, onClose }) {
   );
 }
 
-function EntrenarView({ routines, cardioSettings, logs, activeDay, onDayChange, onSaveLog }) {
+function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDays, logs, activeDay, onDayChange, onSaveLog }) {
   const [workoutActive, setWorkoutActive] = useState(false);
   const [workoutExercises, setWorkoutExercises] = useState([]);
   const [startTime, setStartTime] = useState(null);
@@ -822,6 +925,7 @@ function EntrenarView({ routines, cardioSettings, logs, activeDay, onDayChange, 
   const dayConfig = DAY_MAP[activeDay];
   const dayRoutine = routines[activeDay] || [];
   const cardioCfg = cardioSettings?.[activeDay] || DEFAULT_CARDIO_SETTINGS[activeDay];
+  const isOptionalDay = dayPreferences?.[activeDay]?.optional === true;
 
   const startWorkout = () => {
     const exercises = dayRoutine.map(ex => {
@@ -897,13 +1001,13 @@ function EntrenarView({ routines, cardioSettings, logs, activeDay, onDayChange, 
       {timer && <RestTimer seconds={timer} dayColor={dayConfig.color} onClose={() => setTimer(null)} />}
       {summary && <WorkoutSummary session={summary} logs={logs} onClose={() => setSummary(null)} />}
 
-      <DaySelector active={activeDay} onChange={onDayChange} logs={logs} />
+      <DaySelector active={activeDay} onChange={onDayChange} logs={logs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} showAllDays={false} />
 
       <div className="text-center py-2">
         <h1 className="font-heading text-3xl tracking-wider" style={{ color: dayConfig.color }}>
           {dayConfig.emoji} {dayConfig.title}
         </h1>
-        {dayConfig.optional && <span className="text-xs text-purple-300/60 bg-purple-500/10 px-2 py-0.5 rounded-full">Opcional</span>}
+        {isOptionalDay && <span className="text-xs text-purple-300/60 bg-purple-500/10 px-2 py-0.5 rounded-full">Opcional</span>}
       </div>
 
       {!workoutActive ? (
@@ -1006,7 +1110,7 @@ function EntrenarView({ routines, cardioSettings, logs, activeDay, onDayChange, 
 
 // ─── VISTA HISTORIAL ────────────────────────────────────────
 
-function HistorialView({ logs, activeDay, onDayChange }) {
+function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDayChange }) {
   const dayConfig = DAY_MAP[activeDay];
 
   // Get all logs for this day, sorted newest first
@@ -1039,7 +1143,7 @@ function HistorialView({ logs, activeDay, onDayChange }) {
 
   return (
     <div className="pb-20">
-      <DaySelector active={activeDay} onChange={onDayChange} logs={logs} />
+      <DaySelector active={activeDay} onChange={onDayChange} logs={logs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} showAllDays={false} />
 
       <div className="text-center py-2">
         <h1 className="font-heading text-2xl tracking-wider" style={{ color: dayConfig.color }}>
@@ -1224,7 +1328,7 @@ function RutinaExerciseEditor({ exercise, index, total, dayColor, onSave, onDele
   );
 }
 
-function RutinaView({ routines, cardioSettings, onUpdateRoutines, onUpdateCardioSettings, activeDay, onDayChange, onApplyPreset, onCloneDayTo }) {
+function RutinaView({ routines, cardioSettings, dayPreferences, trainingWeekDays, onUpdateTrainingWeekDays, onUpdateDayPreferences, onUpdateRoutines, onUpdateCardioSettings, activeDay, onDayChange, onApplyPreset, onCloneDayTo }) {
   const [adding, setAdding] = useState(false);
   const [newExercise, setNewExercise] = useState({ name: '', topSet: '', backOff: '—', rest: '2\'', note: '' });
   const [confirmReset, setConfirmReset] = useState(false);
@@ -1285,11 +1389,39 @@ function RutinaView({ routines, cardioSettings, onUpdateRoutines, onUpdateCardio
     setConfirmReset(false);
   };
 
-  const [cloneTarget, setCloneTarget] = useState(() => DAY_CONFIG.find((d) => d.key !== activeDay)?.key || 'martes');
+  const schedule = useMemo(() => mergeTrainingWeekDays(trainingWeekDays), [trainingWeekDays]);
+  const [cloneTarget, setCloneTarget] = useState('martes');
+
+  useEffect(() => {
+    const others = schedule.filter((k) => k !== activeDay);
+    if (!others.length) return;
+    setCloneTarget((prev) => (others.includes(prev) ? prev : others[0]));
+  }, [schedule, activeDay]);
+
+  const toggleTrainingDayInWeek = (key, turnOn) => {
+    const cur = mergeTrainingWeekDays(trainingWeekDays);
+    if (turnOn) {
+      if (!cur.includes(key)) onUpdateTrainingWeekDays(sortWeekDayKeys([...cur, key]));
+      return;
+    }
+    if (cur.length <= 1) {
+      window.alert('Dejá al menos un día de entrenamiento.');
+      return;
+    }
+    onUpdateTrainingWeekDays(sortWeekDayKeys(cur.filter((k) => k !== key)));
+  };
+
+  const toggleOptionalDay = (checked) => {
+    const next = {
+      ...dayPreferences,
+      [activeDay]: { ...(dayPreferences[activeDay] || { optional: false }), optional: !!checked },
+    };
+    onUpdateDayPreferences(next);
+  };
 
   return (
     <div className="pb-20">
-      <DaySelector active={activeDay} onChange={onDayChange} />
+      <DaySelector active={activeDay} onChange={onDayChange} logs={null} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} showAllDays />
 
       <div className="text-center py-2">
         <h1 className="font-heading text-3xl tracking-wider" style={{ color: dayConfig.color }}>
@@ -1298,6 +1430,53 @@ function RutinaView({ routines, cardioSettings, onUpdateRoutines, onUpdateCardio
       </div>
 
       <div className="px-4 space-y-3">
+        <div className="glass rounded-2xl p-4 space-y-3" style={{ borderColor: 'rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.08)' }}>
+          <p className="font-bold text-sm">📆 Mis días de entrenamiento</p>
+          <p className="text-[11px] text-white/40">
+            Elegí qué días de la semana vas al gym (de 1 a 7). Solo esos días aparecen arriba. Podés sumar viernes, domingo o entrenar todos los días.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {DAY_CONFIG.map((d) => {
+              const on = schedule.includes(d.key);
+              return (
+                <label
+                  key={d.key}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer select-none transition-colors ${on ? 'border-white/25 bg-white/10' : 'border-white/10 bg-white/5 opacity-70'}`}
+                >
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded border-white/20 accent-green-400 shrink-0"
+                    checked={on}
+                    onChange={(e) => toggleTrainingDayInWeek(d.key, e.target.checked)}
+                  />
+                  <span className="text-xs text-white/85">
+                    <span className="mr-1">{d.emoji}</span>
+                    {d.label}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="glass rounded-2xl p-4 space-y-2" style={{ borderColor: 'rgba(168,85,247,0.25)', background: 'rgba(168,85,247,0.06)' }}>
+          <p className="font-bold text-sm">📅 Día opcional (solo vos)</p>
+          <p className="text-[11px] text-white/40">
+            Marcá los días que a veces no entrenás (ej. si vas 4–5 días). Es solo una etiqueta <span className="text-purple-300/80">OPC</span>; no cambia la rutina.
+          </p>
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="mt-0.5 w-4 h-4 rounded border-white/20 accent-purple-500"
+              checked={dayPreferences?.[activeDay]?.optional === true}
+              onChange={(e) => toggleOptionalDay(e.target.checked)}
+            />
+            <span className="text-xs text-white/70">
+              Este día (<span className="text-white/90">{dayConfig.label}</span>) es opcional para mí
+            </span>
+          </label>
+        </div>
+
         <div className="glass rounded-2xl p-4 space-y-3" style={{ borderColor: 'rgba(59,130,246,0.35)', background: 'rgba(59,130,246,0.08)' }}>
           <p className="font-bold text-sm">📋 Plantillas prearmadas</p>
           <p className="text-[11px] text-white/40">Reemplaza toda la rutina (todos los días). Podés editar después.</p>
@@ -1328,9 +1507,10 @@ function RutinaView({ routines, cardioSettings, onUpdateRoutines, onUpdateCardio
               onChange={(e) => setCloneTarget(e.target.value)}
               className="flex-1 h-10 rounded-lg bg-white/10 px-2 text-xs text-white border-0"
             >
-              {DAY_CONFIG.filter((d) => d.key !== activeDay).map((d) => (
-                <option key={d.key} value={d.key}>{d.emoji} {d.label}</option>
-              ))}
+              {schedule.filter((k) => k !== activeDay).map((k) => {
+                const d = DAY_MAP[k];
+                return d ? <option key={k} value={k}>{d.emoji} {d.label}</option> : null;
+              })}
             </select>
             <button
               type="button"
@@ -1474,7 +1654,7 @@ function RutinaView({ routines, cardioSettings, onUpdateRoutines, onUpdateCardio
 }
 
 // ─── VISTA CARDIO (CHECKLIST INDEPENDIENTE) ──────────────────
-function CardioView({ cardioSettings, cardioLogs, onSaveCardioLog, activeDay, onDayChange }) {
+function CardioView({ cardioSettings, cardioLogs, dayPreferences, trainingWeekDays, onSaveCardioLog, activeDay, onDayChange }) {
   const dayConfig = DAY_MAP[activeDay];
   const cfg = cardioSettings?.[activeDay] || DEFAULT_CARDIO_SETTINGS[activeDay];
 
@@ -1510,7 +1690,7 @@ function CardioView({ cardioSettings, cardioLogs, onSaveCardioLog, activeDay, on
 
   return (
     <div className="pb-20">
-      <DaySelector active={activeDay} onChange={onDayChange} logs={null} />
+      <DaySelector active={activeDay} onChange={onDayChange} logs={null} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} showAllDays={false} />
 
       <div className="text-center py-2">
         <h1 className="font-heading text-3xl tracking-wider" style={{ color: dayConfig.color }}>
@@ -1867,9 +2047,11 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('entrenar');
-  const [activeDay, setActiveDay] = useState(() => getCurrentDayKey());
+  const [activeDay, setActiveDay] = useState(() => getCurrentDayKey(LEGACY_TRAINING_WEEK_DAYS));
   const [routines, setRoutines] = useState(null);
   const [cardioSettings, setCardioSettings] = useState(null);
+  const [dayPreferences, setDayPreferences] = useState(null);
+  const [trainingWeekDays, setTrainingWeekDays] = useState(null);
   const [cardioLogs, setCardioLogs] = useState([]);
   const [logs, setLogs] = useState([]);
 
@@ -1895,6 +2077,8 @@ function App() {
     if (!user) {
       setRoutines(null);
       setCardioSettings(null);
+      setDayPreferences(null);
+      setTrainingWeekDays(null);
       setCardioLogs([]);
       setLogs([]);
       setLoading(false);
@@ -1915,8 +2099,10 @@ function App() {
             const local = readLocalMigrationBundle();
             const payload = {
               schemaVersion: DATA_SCHEMA_VERSION,
-              routines: local.routines != null ? local.routines : DEFAULT_ROUTINES,
-              cardioSettings: local.cardioSettings != null ? local.cardioSettings : DEFAULT_CARDIO_SETTINGS,
+              routines: mergeRoutinesFromFirestore(local.routines != null ? local.routines : null),
+              cardioSettings: mergeCardioSettingsFromFirestore(local.cardioSettings != null ? local.cardioSettings : null),
+              dayPreferences: mergeDayPreferences(local.dayPreferences),
+              trainingWeekDays: mergeTrainingWeekDays(local.trainingWeekDays),
               workoutLogs: Array.isArray(local.workoutLogs) ? local.workoutLogs : [],
               cardioLogs: Array.isArray(local.cardioLogs) ? local.cardioLogs : [],
               updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1933,18 +2119,24 @@ function App() {
 
         creatingDoc = false;
         const d = snap.data();
-        setRoutines(d.routines != null ? d.routines : DEFAULT_ROUTINES);
-        setCardioSettings(d.cardioSettings != null ? d.cardioSettings : DEFAULT_CARDIO_SETTINGS);
+        const tw = mergeTrainingWeekDays(d.trainingWeekDays);
+        setTrainingWeekDays(tw);
+        setRoutines(mergeRoutinesFromFirestore(d.routines));
+        setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
+        setDayPreferences(mergeDayPreferences(d.dayPreferences));
         setCardioLogs(Array.isArray(d.cardioLogs) ? d.cardioLogs : []);
         setLogs(Array.isArray(d.workoutLogs) ? d.workoutLogs : []);
+        setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
         // Evita que queden datos viejos de localStorage en este navegador.
         if (readLocalMigrationBundle().hasAny) clearLocalGymKeys();
         setLoading(false);
       },
       (err) => {
         console.error('Firestore snapshot:', err);
-        setRoutines(DEFAULT_ROUTINES);
-        setCardioSettings(DEFAULT_CARDIO_SETTINGS);
+        setRoutines(mergeRoutinesFromFirestore(null));
+        setCardioSettings(mergeCardioSettingsFromFirestore(null));
+        setDayPreferences(DEFAULT_DAY_PREFERENCES);
+        setTrainingWeekDays(null);
         setCardioLogs([]);
         setLogs([]);
         setLoading(false);
@@ -1953,6 +2145,14 @@ function App() {
 
     return () => unsub();
   }, [user]);
+
+  useEffect(() => {
+    if (trainingWeekDays === null) return;
+    if (!['entrenar', 'cardio', 'historial'].includes(activeTab)) return;
+    const sched = mergeTrainingWeekDays(trainingWeekDays);
+    if (sched.length === 0 || sched.includes(activeDay)) return;
+    setActiveDay(sched[0]);
+  }, [activeTab, activeDay, trainingWeekDays]);
 
   const persistPartial = useCallback(async (partial) => {
     if (!user?.uid) return;
@@ -1972,15 +2172,51 @@ function App() {
 
   // Save routines
   const updateRoutines = useCallback(async (newRoutines) => {
-    setRoutines(newRoutines);
-    await persistPartial({ routines: newRoutines });
+    const merged = mergeRoutinesFromFirestore(newRoutines);
+    setRoutines(merged);
+    await persistPartial({ routines: merged });
   }, [persistPartial]);
 
   // Save cardio settings per day
   const updateCardioSettings = useCallback(async (newCardioSettings) => {
-    setCardioSettings(newCardioSettings);
-    await persistPartial({ cardioSettings: newCardioSettings });
+    const merged = mergeCardioSettingsFromFirestore(newCardioSettings);
+    setCardioSettings(merged);
+    await persistPartial({ cardioSettings: merged });
   }, [persistPartial]);
+
+  const updateDayPreferences = useCallback(async (next) => {
+    const merged = mergeDayPreferences(next);
+    setDayPreferences(merged);
+    await persistPartial({ dayPreferences: merged });
+  }, [persistPartial]);
+
+  const updateTrainingWeekDays = useCallback(async (nextSchedule) => {
+    const merged = mergeTrainingWeekDays(nextSchedule);
+    if (merged.length === 0) return;
+
+    const newRoutines = mergeRoutinesFromFirestore(routines);
+    merged.forEach((k) => {
+      if (!Array.isArray(newRoutines[k])) {
+        newRoutines[k] = JSON.parse(JSON.stringify(DEFAULT_ROUTINES[k] || []));
+      }
+    });
+
+    const newCardio = mergeCardioSettingsFromFirestore(cardioSettings);
+    merged.forEach((k) => {
+      if (!newCardio[k]) newCardio[k] = { ...DEFAULT_CARDIO_SETTINGS[k] };
+    });
+
+    setTrainingWeekDays(merged);
+    setRoutines(newRoutines);
+    setCardioSettings(newCardio);
+    setActiveDay((prev) => (merged.includes(prev) ? prev : merged[0]));
+
+    await persistPartial({
+      trainingWeekDays: merged,
+      routines: newRoutines,
+      cardioSettings: newCardio,
+    });
+  }, [persistPartial, routines, cardioSettings]);
 
   const saveCardioLog = useCallback(async (entry) => {
     setCardioLogs((prev) => {
@@ -2036,6 +2272,8 @@ function App() {
     setUser(null);
     setRoutines(null);
     setCardioSettings(null);
+    setDayPreferences(null);
+    setTrainingWeekDays(null);
     setCardioLogs([]);
     setLogs([]);
   };
@@ -2058,7 +2296,7 @@ function App() {
   }
 
   // Data loading
-  if (loading || !routines || !cardioSettings) {
+  if (loading || !routines || !cardioSettings || !dayPreferences || trainingWeekDays === null) {
     return (
       <div className="h-screen flex items-center justify-center">
         <div className="text-center">
@@ -2097,12 +2335,16 @@ function App() {
         {activeTab === 'entrenar' && (
           <EntrenarView routines={routines} logs={logs} activeDay={activeDay}
             cardioSettings={cardioSettings}
+            dayPreferences={dayPreferences}
+            trainingWeekDays={trainingWeekDays}
             onDayChange={setActiveDay} onSaveLog={saveLog} />
         )}
         {activeTab === 'cardio' && (
           <CardioView
             cardioSettings={cardioSettings}
             cardioLogs={cardioLogs}
+            dayPreferences={dayPreferences}
+            trainingWeekDays={trainingWeekDays}
             onSaveCardioLog={saveCardioLog}
             activeDay={activeDay}
             onDayChange={setActiveDay}
@@ -2112,10 +2354,14 @@ function App() {
           <DashboardView logs={logs} cardioLogs={cardioLogs} />
         )}
         {activeTab === 'historial' && (
-          <HistorialView logs={logs} activeDay={activeDay} onDayChange={setActiveDay} />
+          <HistorialView logs={logs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} activeDay={activeDay} onDayChange={setActiveDay} />
         )}
         {activeTab === 'rutina' && (
-          <RutinaView routines={routines} cardioSettings={cardioSettings} onUpdateCardioSettings={updateCardioSettings}
+          <RutinaView routines={routines} cardioSettings={cardioSettings} dayPreferences={dayPreferences}
+            trainingWeekDays={trainingWeekDays}
+            onUpdateTrainingWeekDays={updateTrainingWeekDays}
+            onUpdateDayPreferences={updateDayPreferences}
+            onUpdateCardioSettings={updateCardioSettings}
             onUpdateRoutines={updateRoutines}
             onApplyPreset={applyPreset}
             onCloneDayTo={cloneDayTo}
