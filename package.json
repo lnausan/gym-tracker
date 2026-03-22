@@ -4,8 +4,16 @@
   "private": true,
   "description": "Gym Tracker — Carga Progresiva. SPA con React + Tailwind CSS.",
   "scripts": {
+    "predev": "npm run build",
+    "prestart": "npm run build",
     "dev": "node scripts/dev-server.mjs",
     "start": "node scripts/dev-server.mjs",
-    "build": "echo \"Static site (no build step needed)\""
+    "build": "node scripts/build-css.mjs && node scripts/build-js.mjs"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.27",
+    "esbuild": "^0.27.4",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^3.4.19"
   }
 }

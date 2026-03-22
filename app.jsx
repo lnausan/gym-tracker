@@ -71,6 +71,98 @@ function clearLocalGymKeys() {
   });
 }
 
+/** Detecta si un objeto parece una sesión de pesas guardada. */
+function looksLikeWorkoutSession(obj) {
+  return obj && typeof obj === 'object' && Array.isArray(obj.exercises) && (obj.dayKey || obj.date);
+}
+
+/** Detecta entrada de cardio. */
+function looksLikeCardioEntry(obj) {
+  return obj && typeof obj === 'object' && obj.date && obj.dayKey && (obj.minutes != null || obj.done != null);
+}
+
+/**
+ * Busca en TODO localStorage arrays que parezcan historial (por si hubo otra clave o app vieja).
+ */
+function scanLocalStorageForGymData() {
+  const workoutCandidates = [];
+  const cardioCandidates = [];
+  const seenKeys = new Set(LOCAL_GYM_KEYS);
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || seenKeys.has(key)) continue;
+      let raw;
+      try {
+        raw = localStorage.getItem(key);
+      } catch (e) {
+        continue;
+      }
+      if (!raw || raw.length < 3) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        continue;
+      }
+      if (!Array.isArray(parsed) || parsed.length === 0) continue;
+      const first = parsed[0];
+      if (looksLikeWorkoutSession(first)) {
+        workoutCandidates.push({ key, data: parsed });
+      } else if (looksLikeCardioEntry(first)) {
+        cardioCandidates.push({ key, data: parsed });
+      }
+    }
+  } catch (e) {
+    console.error('scanLocalStorageForGymData', e);
+  }
+  return { workoutCandidates, cardioCandidates };
+}
+
+/** Lista nombres de claves en localStorage (para mensajes de diagnóstico). */
+function listLocalStorageKeysHint() {
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.includes('gym') || k.includes('Gym') || k.includes('workout') || k.includes('log'))) keys.push(k);
+    }
+    return keys.length ? keys.slice(0, 12).join(', ') : '(ninguna con gym/log)';
+  } catch (e) {
+    return '';
+  }
+}
+
+/** Parsea JSON pegado: array de sesiones, o objeto con workoutLogs/cardioLogs (como Firestore). */
+function parseImportedUserData(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return { workoutLogs: null, cardioLogs: null, error: 'Vacío' };
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    return { workoutLogs: null, cardioLogs: null, error: 'No es JSON válido' };
+  }
+  if (Array.isArray(parsed)) {
+    if (parsed.length && looksLikeWorkoutSession(parsed[0])) {
+      return { workoutLogs: parsed, cardioLogs: null, error: null };
+    }
+    return { workoutLogs: null, cardioLogs: null, error: 'El array no parece sesiones de gym (falta exercises/dayKey)' };
+  }
+  if (parsed && typeof parsed === 'object') {
+    const w = parsed.workoutLogs;
+    const c = parsed.cardioLogs;
+    const outW = Array.isArray(w) ? w : null;
+    const outC = Array.isArray(c) ? c : null;
+    if (outW?.length || outC?.length) return { workoutLogs: outW, cardioLogs: outC, error: null };
+    if (Array.isArray(parsed.logs) && parsed.logs.length && looksLikeWorkoutSession(parsed.logs[0])) {
+      return { workoutLogs: parsed.logs, cardioLogs: null, error: null };
+    }
+    return { workoutLogs: null, cardioLogs: null, error: 'No hay workoutLogs ni cardioLogs en el objeto' };
+  }
+  return { workoutLogs: null, cardioLogs: null, error: 'Formato no reconocido' };
+}
+
 /** Une historial de la nube con datos viejos de localStorage (misma sesión no duplica). */
 function mergeWorkoutLogs(cloud, local) {
   const a = Array.isArray(cloud) ? cloud : [];
@@ -213,8 +305,11 @@ function mergeDayPreferences(raw) {
   for (const d of DAY_CONFIG) {
     const k = d.key;
     const v = raw[k];
-    if (v && typeof v === 'object' && typeof v.optional === 'boolean') {
-      merged[k] = { ...merged[k], optional: v.optional };
+    if (v && typeof v === 'object') {
+      const opt = v.optional;
+      // Firestore / JSON a veces devuelve distinto a boolean estricto
+      const optional = opt === true || opt === 'true' || opt === 1;
+      merged[k] = { ...merged[k], optional };
     }
   }
   return merged;
@@ -1159,7 +1254,72 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
 
 // ─── VISTA HISTORIAL ────────────────────────────────────────
 
-function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDayChange, onRecoverLocal }) {
+function HistorialImportJSON({ onImportJSON }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const fileRef = useRef(null);
+  return (
+    <div className="rounded-2xl p-4 border border-white/10 bg-white/[0.02]">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full text-left text-xs font-medium text-cyan-300/90 hover:text-cyan-200"
+      >
+        {open ? '▼' : '▶'} Importar JSON (Firebase, backup o otro dispositivo)
+      </button>
+      {open && (
+        <div className="mt-3 space-y-2">
+          <p className="text-[10px] text-white/35 leading-relaxed">
+            En Firebase: Firestore → <code className="text-white/50">userData</code> → tu usuario → copiá el campo{' '}
+            <code className="text-white/50">workoutLogs</code> (array) o pegá todo el documento. También podés pegar un array{' '}
+            <code className="text-white/50">[&#123;...&#125;]</code>.
+          </p>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder='[{"id":"...","dayKey":"jueves","date":"2025-...", ...}]'
+            rows={5}
+            className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-[11px] text-white placeholder-white/20 font-mono"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => onImportJSON(text)}
+              className="flex-1 py-2 rounded-xl bg-cyan-500/20 text-xs text-cyan-200 hover:bg-cyan-500/30"
+            >
+              Fusionar con la nube
+            </button>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="px-3 py-2 rounded-xl bg-white/10 text-xs text-white/70"
+            >
+              Archivo .json
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (!f) return;
+                const r = new FileReader();
+                r.onload = () => {
+                  setText(String(r.result || ''));
+                };
+                r.readAsText(f);
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDayChange, onRecoverLocal, onImportJSON }) {
   const dayConfig = DAY_MAP[activeDay];
 
   // Get all logs for this day, sorted newest first
@@ -1288,18 +1448,20 @@ function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDa
           <div className={`rounded-2xl p-4 border ${logs.length === 0 ? 'glass border-white/10' : 'border-transparent bg-white/[0.03]'}`}>
             <p className="text-[11px] text-white/40 mb-2">
               {logs.length === 0
-                ? 'Si entrenaste solo en este celular y el historial no aparece, fusioná lo guardado acá con tu cuenta.'
-                : '¿Faltan sesiones viejas? Si quedó copia en este navegador, fusionala con la nube.'}
+                ? 'Si entrenaste solo en este celular y el historial no aparece, probá primero fusionar lo del navegador; si ya se borró, importá desde Firebase.'
+                : '¿Faltan sesiones viejas? Probá fusionar el navegador o importar un backup JSON.'}
             </p>
             <button
               type="button"
               onClick={() => onRecoverLocal()}
               className="w-full py-2.5 rounded-xl bg-orange-500/15 text-xs text-orange-200 hover:bg-orange-500/25"
             >
-              Recuperar / fusionar historial local
+              Buscar y fusionar datos en este navegador
             </button>
           </div>
         )}
+
+        {typeof onImportJSON === 'function' && <HistorialImportJSON onImportJSON={onImportJSON} />}
       </div>
     </div>
   );
@@ -2286,9 +2448,10 @@ function App() {
   const persistPartial = useCallback(async (partial) => {
     if (!user?.uid) return;
     try {
+      const clean = JSON.parse(JSON.stringify(partial));
       await getDb().collection(USER_DATA_COLLECTION).doc(user.uid).set(
         {
-          ...partial,
+          ...clean,
           schemaVersion: DATA_SCHEMA_VERSION,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         },
@@ -2296,6 +2459,7 @@ function App() {
       );
     } catch (e) {
       console.error('persistPartial', e);
+      window.alert('No se pudo guardar en la nube. Revisá conexión y reglas de Firestore. ' + (e.message || e));
     }
   }, [user]);
 
@@ -2364,23 +2528,32 @@ function App() {
     });
   }, [persistPartial]);
 
-  /** Si todavía quedó gym-logs / gym-cardio-logs en este navegador, los fusiona con la nube. */
+  /** gym-logs + escaneo de otras claves + fusión con la nube. */
   const recoverFromLocalStorage = useCallback(async () => {
     const local = readLocalMigrationBundle();
-    const hasLogs = Array.isArray(local.workoutLogs) && local.workoutLogs.length > 0;
-    const hasCardio = Array.isArray(local.cardioLogs) && local.cardioLogs.length > 0;
-    if (!hasLogs && !hasCardio) {
+    const scan = scanLocalStorageForGymData();
+    let localW = mergeWorkoutLogs([], local.workoutLogs || []);
+    let localC = mergeCardioLogs([], local.cardioLogs || []);
+    scan.workoutCandidates.forEach(({ key, data }) => {
+      localW = mergeWorkoutLogs(localW, data);
+    });
+    scan.cardioCandidates.forEach(({ data }) => {
+      localC = mergeCardioLogs(localC, data);
+    });
+    const hint = listLocalStorageKeysHint();
+    if (localW.length === 0 && localC.length === 0) {
       window.alert(
-        'No hay historial en el almacenamiento local de este navegador (clave gym-logs).\n\n' +
-          'Si ya entraste acá con tu cuenta, puede haberse fusionado o borrado.\n' +
-          'Probá en el mismo celular/navegador donde cargaste los datos, o revisá en Firebase si workoutLogs tiene datos.'
+        'No hay sesiones guardadas en este navegador (ni en gym-logs ni en otras claves detectadas).\n\n' +
+          'Suele pasar si ya entraste con tu cuenta: el historial pasó a la nube y se borró el local, o usás otro navegador.\n\n' +
+          `Claves con "gym"/log: ${hint}\n\n` +
+          'Si tenés copia del campo workoutLogs en Firebase o un .json, usá "Importar JSON" abajo.'
       );
       return;
     }
-    const mergedW = mergeWorkoutLogs(logs, local.workoutLogs);
-    const mergedC = mergeCardioLogs(cardioLogs, local.cardioLogs);
+    const mergedW = mergeWorkoutLogs(logs, localW);
+    const mergedC = mergeCardioLogs(cardioLogs, localC);
     if (mergedW.length === logs.length && mergedC.length === cardioLogs.length) {
-      window.alert('Esas sesiones ya están en la nube. Se limpió el almacenamiento local duplicado.');
+      window.alert('Esas sesiones ya están en la nube.');
       clearLocalGymKeys();
       return;
     }
@@ -2388,8 +2561,31 @@ function App() {
     setCardioLogs(mergedC);
     await persistPartial({ workoutLogs: mergedW, cardioLogs: mergedC });
     clearLocalGymKeys();
-    window.alert('Listo: el historial local se unió con tu cuenta en la nube.');
+    window.alert('Listo: se fusionó lo encontrado en este navegador con tu cuenta.');
   }, [logs, cardioLogs, persistPartial]);
+
+  const importSessionsFromJSON = useCallback(
+    async (text) => {
+      const { workoutLogs: impW, cardioLogs: impC, error } = parseImportedUserData(text);
+      if (error) {
+        window.alert(`${error}\n\nPodés pegar:\n• un array [ {...}, {...} ]\n• o el objeto con workoutLogs / cardioLogs (como en Firestore).`);
+        return;
+      }
+      const mergedW = mergeWorkoutLogs(logs, impW || []);
+      const mergedC = mergeCardioLogs(cardioLogs, impC || []);
+      const addedW = mergedW.length - logs.length;
+      const addedC = mergedC.length - cardioLogs.length;
+      if (addedW <= 0 && addedC <= 0) {
+        window.alert('No hay sesiones nuevas (vacío, duplicadas o ya en la nube).');
+        return;
+      }
+      setLogs(mergedW);
+      setCardioLogs(mergedC);
+      await persistPartial({ workoutLogs: mergedW, cardioLogs: mergedC });
+      window.alert(`Listo. Sesiones nuevas: +${addedW} pesas, +${addedC} cardio.`);
+    },
+    [logs, cardioLogs, persistPartial]
+  );
 
   const applyPreset = useCallback(async (presetType) => {
     const labels = { hipertrofia: 'Hipertrofia', fuerza: 'Fuerza', definicion: 'Definición' };
@@ -2510,7 +2706,15 @@ function App() {
           <DashboardView logs={logs} cardioLogs={cardioLogs} onNavigateTab={setActiveTab} />
         )}
         {activeTab === 'historial' && (
-          <HistorialView logs={logs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} activeDay={activeDay} onDayChange={setActiveDay} onRecoverLocal={recoverFromLocalStorage} />
+          <HistorialView
+            logs={logs}
+            dayPreferences={dayPreferences}
+            trainingWeekDays={trainingWeekDays}
+            activeDay={activeDay}
+            onDayChange={setActiveDay}
+            onRecoverLocal={recoverFromLocalStorage}
+            onImportJSON={importSessionsFromJSON}
+          />
         )}
         {activeTab === 'rutina' && (
           <RutinaView routines={routines} cardioSettings={cardioSettings} dayPreferences={dayPreferences}

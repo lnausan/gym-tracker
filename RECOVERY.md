@@ -9,8 +9,9 @@ Si tu cuenta **ya tenía** un documento en Firestore (por ejemplo creado desde l
 ## Si todavía no ves datos
 
 1. **Mismo dispositivo/navegador** donde entrenaste (Safari vs Chrome = almacenamiento distinto).
-2. En la app: **Historial** → botón **“Recuperar / fusionar historial local”**.
-3. Si el aviso dice que no hay nada en local, esas claves ya se borraron o nunca existieron en **ese** navegador.
+2. En la app: **Historial** → **“Buscar y fusionar datos en este navegador”** (ahora también busca otras claves además de `gym-logs`).
+3. Si igual no hay nada en local, usá **“Importar JSON”**: pegá el array `workoutLogs` desde **Firebase Console** (documento `userData` / tu uid) o un archivo `.json` de backup.
+4. Si el aviso lista claves vacías, el historial local ya se borró; solo queda la nube o un backup manual.
 
 ## Claves en `localStorage`
 
