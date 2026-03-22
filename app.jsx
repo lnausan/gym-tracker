@@ -81,6 +81,38 @@ async function fetchUserDocPreferServer(ref) {
   }
 }
 
+/**
+ * Tras un set(), confirma con el servidor que el documento ya refleja al menos este clientWriteTs.
+ * Evita el caso “solo local”: la UI avanza pero otro dispositivo no ve nada.
+ */
+async function waitUntilServerReflectsWrite(ref, minTs, timeoutMs = 15000) {
+  const start = Date.now();
+  let attempt = 0;
+  while (Date.now() - start < timeoutMs) {
+    attempt += 1;
+    try {
+      const snap = await ref.get({ source: 'server' });
+      if (snap.exists) {
+        const d = snap.data();
+        const u = effectiveServerWriteTs(d);
+        const cw = typeof d.clientWriteTs === 'number' ? d.clientWriteTs : 0;
+        if (cw >= minTs || u >= minTs) {
+          return { ok: true, snap };
+        }
+      }
+    } catch (e) {
+      if (e?.code === 'permission-denied') {
+        return { ok: false };
+      }
+      if (!isFirestoreOfflineOrNetworkError(e)) {
+        console.warn('waitUntilServerReflectsWrite', e);
+      }
+    }
+    await new Promise((r) => setTimeout(r, Math.min(200 + attempt * 40, 1500)));
+  }
+  return { ok: false };
+}
+
 /** Compat: algunas versiones exponen fromCache, otras isFromCache. */
 function snapshotIsFromLocalCache(snap) {
   const m = snap.metadata;
