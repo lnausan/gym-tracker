@@ -2423,7 +2423,18 @@ function App() {
       }
       lastLocalWriteTsRef.current = 0;
       const ref = db.collection(USER_DATA_COLLECTION).doc(user.uid);
-      const snap = await ref.get({ source: 'server' });
+      // Forzar servidor falla sin red aunque haya caché; en ese caso usar lectura normal (caché + red si puede).
+      let snap;
+      try {
+        snap = await ref.get({ source: 'server' });
+      } catch (err) {
+        const m = String(err?.message || '');
+        if (/Failed to get document|local cache|unavailable|network/i.test(m)) {
+          snap = await ref.get();
+        } else {
+          throw err;
+        }
+      }
       if (!snap.exists) {
         window.alert('No hay datos en la nube para esta cuenta.');
         return;
@@ -2440,7 +2451,7 @@ function App() {
     } catch (e) {
       console.error(e);
       const msg = String(e?.message || e || '');
-      if (!/user change|waitForPendingWrites/i.test(msg)) {
+      if (!/user change|waitForPendingWrites|Failed to get document|local cache/i.test(msg)) {
         window.alert('No se pudo sincronizar. ' + msg);
       }
     } finally {
