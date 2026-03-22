@@ -81,38 +81,6 @@ async function fetchUserDocPreferServer(ref) {
   }
 }
 
-/**
- * Tras un set(), confirma con el servidor que el documento ya refleja al menos este clientWriteTs.
- * Evita el caso “solo local”: la UI avanza pero otro dispositivo no ve nada.
- */
-async function waitUntilServerReflectsWrite(ref, minTs, timeoutMs = 15000) {
-  const start = Date.now();
-  let attempt = 0;
-  while (Date.now() - start < timeoutMs) {
-    attempt += 1;
-    try {
-      const snap = await ref.get({ source: 'server' });
-      if (snap.exists) {
-        const d = snap.data();
-        const u = effectiveServerWriteTs(d);
-        const cw = typeof d.clientWriteTs === 'number' ? d.clientWriteTs : 0;
-        if (cw >= minTs || u >= minTs) {
-          return { ok: true, snap };
-        }
-      }
-    } catch (e) {
-      if (e?.code === 'permission-denied') {
-        return { ok: false };
-      }
-      if (!isFirestoreOfflineOrNetworkError(e)) {
-        console.warn('waitUntilServerReflectsWrite', e);
-      }
-    }
-    await new Promise((r) => setTimeout(r, Math.min(200 + attempt * 40, 1500)));
-  }
-  return { ok: false };
-}
-
 /** Compat: algunas versiones exponen fromCache, otras isFromCache. */
 function snapshotIsFromLocalCache(snap) {
   const m = snap.metadata;
@@ -1537,8 +1505,7 @@ function RutinaView({ routines, cardioSettings, dayPreferences, trainingWeekDays
   };
 
   const saveRoutine = (newDayRoutine) => {
-    const updated = { ...routines, [activeDay]: newDayRoutine };
-    onUpdateRoutines(updated);
+    onUpdateRoutines((prev) => ({ ...prev, [activeDay]: newDayRoutine }));
   };
 
   const handleSaveExercise = (index, updatedExercise) => {
@@ -2269,6 +2236,9 @@ function App() {
   const [activeTab, setActiveTab] = useState('entrenar');
   const [activeDay, setActiveDay] = useState(() => getCurrentDayKey(LEGACY_TRAINING_WEEK_DAYS));
   const [routines, setRoutines] = useState(null);
+  /** Siempre el último objeto de rutinas (evita carrera al reordenar ejercicios rápido antes del re-render). */
+  const routinesRef = useRef(null);
+  if (routines != null) routinesRef.current = routines;
   const [cardioSettings, setCardioSettings] = useState(null);
   const [dayPreferences, setDayPreferences] = useState(null);
   const [trainingWeekDays, setTrainingWeekDays] = useState(null);
@@ -2280,13 +2250,16 @@ function App() {
   /** Mientras hay un set() en vuelo: timestamp optimista (solo hasta que confirme o falle). */
   const pendingOptimisticWriteTsRef = useRef(0);
   const persistInFlightRef = useRef(0);
+  const persistQueueRef = useRef(Promise.resolve());
 
   /** Alinea todo el estado con un documento leído del servidor (mismo criterio que ↻ Sync). */
   const applyFullDocFromServerData = useCallback((d) => {
     const tw = mergeTrainingWeekDays(d.trainingWeekDays);
     lastLocalWriteTsRef.current = effectiveServerWriteTs(d);
     setTrainingWeekDays(tw);
-    setRoutines(mergeRoutinesFromFirestore(d.routines));
+    const mr = mergeRoutinesFromFirestore(d.routines);
+    routinesRef.current = mr;
+    setRoutines(mr);
     setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
     setDayPreferences(mergeDayPreferences(d.dayPreferences));
     setLogs(Array.isArray(d.workoutLogs) ? d.workoutLogs : []);
@@ -2332,12 +2305,15 @@ function App() {
       lastLocalWriteTsRef.current = 0;
       pendingOptimisticWriteTsRef.current = 0;
       persistInFlightRef.current = 0;
+      persistQueueRef.current = Promise.resolve();
+      routinesRef.current = null;
     }
   }, [user]);
 
   // Carga y sync en tiempo real desde Firestore (userData/{uid})
   useEffect(() => {
     if (!user) {
+      routinesRef.current = null;
       setRoutines(null);
       setCardioSettings(null);
       setDayPreferences(null);
@@ -2392,7 +2368,9 @@ function App() {
 
         if (applySettings) {
           setTrainingWeekDays(tw);
-          setRoutines(mergeRoutinesFromFirestore(d.routines));
+          const mr = mergeRoutinesFromFirestore(d.routines);
+          routinesRef.current = mr;
+          setRoutines(mr);
           setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
           setDayPreferences(mergeDayPreferences(d.dayPreferences));
           // Alinear con el snapshot aplicado. NUNCA poner 0: un snapshot viejo en caché volvería a “ganar” (serverTs>=0).
@@ -2434,6 +2412,7 @@ function App() {
       },
       (err) => {
         console.error('Firestore snapshot:', err);
+        routinesRef.current = null;
         setRoutines(mergeRoutinesFromFirestore(null));
         setCardioSettings(mergeCardioSettingsFromFirestore(null));
         setDayPreferences(DEFAULT_DAY_PREFERENCES);
@@ -2501,65 +2480,73 @@ function App() {
   /** Persiste en Firestore `userData/{uid}` — todo el historial y ajustes son por cuenta (perfil). */
   const persistPartial = useCallback(async (partial) => {
     if (!user?.uid) return;
-    const ref = getDb().collection(USER_DATA_COLLECTION).doc(user.uid);
-    const ts = Date.now();
-    persistInFlightRef.current += 1;
-    pendingOptimisticWriteTsRef.current = ts;
-    try {
-      const clean = JSON.parse(JSON.stringify({ ...partial, clientWriteTs: ts }));
-      await ref.set(
-        {
-          ...clean,
-          schemaVersion: DATA_SCHEMA_VERSION,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-      // Con persistencia offline, `set` puede resolver cuando la cola local aceptó el write, NO cuando
-      // el servidor ya lo tiene — por eso otro dispositivo no veía cambios. Esperamos confirmación en servidor.
-      const db = getDb();
+    const run = async () => {
+      const ref = getDb().collection(USER_DATA_COLLECTION).doc(user.uid);
+      const ts = Date.now();
+      persistInFlightRef.current += 1;
+      pendingOptimisticWriteTsRef.current = ts;
       try {
-        await withTimeout(db.waitForPendingWrites(), 20000, 'waitForPendingWrites');
-      } catch (w) {
-        if (w?.code === 'deadline-exceeded') {
-          console.warn('persistPartial: escritura aún en cola o sin red; otro dispositivo puede demorar.');
-        } else if (!isBenignFirestoreSessionRaceError(w)) {
-          console.warn('waitForPendingWrites tras guardar', w);
+        const clean = JSON.parse(JSON.stringify({ ...partial, clientWriteTs: ts }));
+        await ref.set(
+          {
+            ...clean,
+            schemaVersion: DATA_SCHEMA_VERSION,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        const db = getDb();
+        try {
+          await withTimeout(db.waitForPendingWrites(), 20000, 'waitForPendingWrites');
+        } catch (w) {
+          if (w?.code === 'deadline-exceeded') {
+            console.warn('persistPartial: escritura aún en cola o sin red; otro dispositivo puede demorar.');
+          } else if (!isBenignFirestoreSessionRaceError(w)) {
+            console.warn('waitForPendingWrites tras guardar', w);
+          }
         }
-      }
-      // Solo después de éxito + cola vacía hacia servidor: el servidor tiene (al menos) este clientWriteTs.
-      lastLocalWriteTsRef.current = ts;
-    } catch (e) {
-      console.error('persistPartial', e);
-      // Si el set falló, NO dejar lastLocalWriteTsRef “inflado”: si no, nunca se aplican datos del servidor y parece que no sincroniza.
-      try {
-        const snap = await fetchUserDocPreferServer(ref);
-        if (snap.exists) {
-          lastLocalWriteTsRef.current = effectiveServerWriteTs(snap.data());
-        } else {
+        lastLocalWriteTsRef.current = ts;
+      } catch (e) {
+        console.error('persistPartial', e);
+        try {
+          const snap = await fetchUserDocPreferServer(ref);
+          if (snap.exists) {
+            lastLocalWriteTsRef.current = effectiveServerWriteTs(snap.data());
+          } else {
+            lastLocalWriteTsRef.current = 0;
+          }
+        } catch (_) {
           lastLocalWriteTsRef.current = 0;
         }
-      } catch (_) {
-        lastLocalWriteTsRef.current = 0;
+        if (!isBenignFirestoreSessionRaceError(e)) {
+          window.alert('No se pudo guardar en la nube. Revisá conexión y reglas de Firestore. ' + (e?.message || firestoreErrorText(e)));
+        }
+      } finally {
+        persistInFlightRef.current -= 1;
+        if (persistInFlightRef.current <= 0) {
+          persistInFlightRef.current = 0;
+          pendingOptimisticWriteTsRef.current = 0;
+        }
       }
-      if (!isBenignFirestoreSessionRaceError(e)) {
-        window.alert('No se pudo guardar en la nube. Revisá conexión y reglas de Firestore. ' + (e?.message || firestoreErrorText(e)));
-      }
-    } finally {
-      persistInFlightRef.current -= 1;
-      if (persistInFlightRef.current <= 0) {
-        persistInFlightRef.current = 0;
-        pendingOptimisticWriteTsRef.current = 0;
-      }
-    }
+    };
+    const next = persistQueueRef.current.then(run, run);
+    persistQueueRef.current = next.catch(() => {});
+    await next;
   }, [user]);
 
-  // Save routines
-  const updateRoutines = useCallback(async (newRoutines) => {
-    const merged = mergeRoutinesFromFirestore(newRoutines);
-    setRoutines(merged);
-    await persistPartial({ routines: merged });
-  }, [persistPartial]);
+  // Save routines (acepta objeto o función(prev) para no perder reordenamientos rápidos por closure viejo)
+  const updateRoutines = useCallback(
+    async (newRoutinesOrUpdater) => {
+      const base = routinesRef.current;
+      if (!base) return;
+      const raw = typeof newRoutinesOrUpdater === 'function' ? newRoutinesOrUpdater(base) : newRoutinesOrUpdater;
+      const merged = mergeRoutinesFromFirestore(raw);
+      routinesRef.current = merged;
+      setRoutines(merged);
+      await persistPartial({ routines: merged });
+    },
+    [persistPartial]
+  );
 
   // Save cardio settings per day
   const updateCardioSettings = useCallback(async (newCardioSettings) => {
@@ -2578,7 +2565,9 @@ function App() {
     const merged = mergeTrainingWeekDays(nextSchedule);
     if (merged.length === 0) return;
 
-    const newRoutines = mergeRoutinesFromFirestore(routines);
+    const baseRoutines = routinesRef.current;
+    if (!baseRoutines) return;
+    const newRoutines = mergeRoutinesFromFirestore(baseRoutines);
     merged.forEach((k) => {
       if (!Array.isArray(newRoutines[k])) {
         newRoutines[k] = JSON.parse(JSON.stringify(DEFAULT_ROUTINES[k] || []));
@@ -2591,6 +2580,7 @@ function App() {
     });
 
     setTrainingWeekDays(merged);
+    routinesRef.current = newRoutines;
     setRoutines(newRoutines);
     setCardioSettings(newCardio);
     setActiveDay((prev) => (merged.includes(prev) ? prev : merged[0]));
@@ -2600,7 +2590,7 @@ function App() {
       routines: newRoutines,
       cardioSettings: newCardio,
     });
-  }, [persistPartial, routines, cardioSettings]);
+  }, [persistPartial, cardioSettings]);
 
   /** Cada registro va a `userData/{uid}.cardioLogs` en Firestore (perfil actual). */
   const saveCardioLog = useCallback(
@@ -2636,7 +2626,8 @@ function App() {
 
   const cloneDayTo = useCallback(async (fromDay, toDay) => {
     if (!fromDay || !toDay || fromDay === toDay) return;
-    const source = routines[fromDay] || [];
+    const base = routinesRef.current;
+    const source = (base || {})[fromDay] || [];
     if (!source.length) {
       window.alert('No hay ejercicios para copiar en ese día.');
       return;
@@ -2646,9 +2637,8 @@ function App() {
       ex.id = uid();
       ex.order = i;
     });
-    const next = { ...routines, [toDay]: copy };
-    await updateRoutines(next);
-  }, [routines, updateRoutines]);
+    await updateRoutines((prev) => ({ ...prev, [toDay]: copy }));
+  }, [updateRoutines]);
 
   // Total sessions count
   const totalSessions = logs.length;
@@ -2700,6 +2690,7 @@ function App() {
       console.error(e);
     }
     setUser(null);
+    routinesRef.current = null;
     setRoutines(null);
     setCardioSettings(null);
     setDayPreferences(null);

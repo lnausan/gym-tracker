@@ -19,10 +19,17 @@
   input[type='number']::-webkit-inner-spin-button,
   input[type='number']::-webkit-outer-spin-button {
     -webkit-appearance: none;
+    appearance: none;
     margin: 0;
   }
   input[type='number'] {
     -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  /* Preflight de Tailwind pone display:block + vertical-align en img/video; el estándar ignora vertical-align con block. */
+  img,
+  video {
+    vertical-align: unset;
   }
   input:focus {
     outline: none;
