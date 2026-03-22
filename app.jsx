@@ -16,12 +16,22 @@ function getFirebaseConfig() {
 
 function ensureFirebaseInitialized() {
   if (!window.firebase) throw new Error('Firebase no cargó. Revisá los scripts en index.html.');
-  if (firebase.apps && firebase.apps.length > 0) return;
-  const cfg = getFirebaseConfig();
-  if (!cfg.apiKey || !cfg.authDomain || !cfg.projectId || !cfg.appId) {
-    throw new Error('Firebase no está configurado. Pegá FIREBASE_CONFIG en index.html.');
+  if (!firebase.apps || firebase.apps.length === 0) {
+    const cfg = getFirebaseConfig();
+    if (!cfg.apiKey || !cfg.authDomain || !cfg.projectId || !cfg.appId) {
+      throw new Error('Firebase no está configurado. Pegá FIREBASE_CONFIG en index.html.');
+    }
+    firebase.initializeApp(cfg);
   }
-  firebase.initializeApp(cfg);
+  // Caché local (tras init): primera lectura suele ser más rápida al iniciar sesión.
+  if (!window.__gymFsPersistenceTried) {
+    window.__gymFsPersistenceTried = true;
+    try {
+      firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch(() => {});
+    } catch (e) {
+      /* ignore */
+    }
+  }
 }
 
 function getAuth() {
@@ -2135,8 +2145,9 @@ function App() {
   const [trainingWeekDays, setTrainingWeekDays] = useState(null);
   const [cardioLogs, setCardioLogs] = useState([]);
   const [logs, setLogs] = useState([]);
-  /** Evita que onSnapshot pise dayPreferences con un snapshot viejo antes de que el write llegue al servidor. */
-  const lastLocalDayPrefsTsRef = useRef(0);
+  const [syncing, setSyncing] = useState(false);
+  /** Evita que onSnapshot pise rutinas/preferencias con un snapshot viejo antes de que el write llegue al servidor. */
+  const lastLocalWriteTsRef = useRef(0);
 
   // Check auth session on mount
   useEffect(() => {
@@ -2156,7 +2167,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) lastLocalDayPrefsTsRef.current = 0;
+    if (!user) lastLocalWriteTsRef.current = 0;
   }, [user]);
 
   // Carga y sync en tiempo real desde Firestore (userData/{uid})
@@ -2207,15 +2218,20 @@ function App() {
         creatingDoc = false;
         const d = snap.data();
         const tw = mergeTrainingWeekDays(d.trainingWeekDays);
-        setTrainingWeekDays(tw);
-        setRoutines(mergeRoutinesFromFirestore(d.routines));
-        setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
+        const serverTs = Math.max(
+          typeof d.clientWriteTs === 'number' ? d.clientWriteTs : 0,
+          typeof d.dayPreferencesClientTs === 'number' ? d.dayPreferencesClientTs : 0
+        );
+        const localTs = lastLocalWriteTsRef.current;
+        const applySettings = serverTs >= localTs;
 
-        const serverPrefsTs = typeof d.dayPreferencesClientTs === 'number' ? d.dayPreferencesClientTs : 0;
-        const localPrefsTs = lastLocalDayPrefsTsRef.current;
-        if (serverPrefsTs >= localPrefsTs) {
+        if (applySettings) {
+          setTrainingWeekDays(tw);
+          setRoutines(mergeRoutinesFromFirestore(d.routines));
+          setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
           setDayPreferences(mergeDayPreferences(d.dayPreferences));
-          if (serverPrefsTs > 0) lastLocalDayPrefsTsRef.current = 0;
+          if (serverTs > 0) lastLocalWriteTsRef.current = 0;
+          setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
         }
 
         let workoutLogs = Array.isArray(d.workoutLogs) ? d.workoutLogs : [];
@@ -2245,9 +2261,9 @@ function App() {
           clearLocalGymKeys();
         }
 
-        setLogs(workoutLogs);
-        setCardioLogs(cardioLogs);
-        setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
+        // Unión con el estado actual: no perder sesiones ni cardio si el snapshot llegó antes que el último write.
+        setLogs((prev) => mergeWorkoutLogs(prev, workoutLogs));
+        setCardioLogs((prev) => mergeCardioLogs(prev, cardioLogs));
         setLoading(false);
       },
       (err) => {
@@ -2277,7 +2293,9 @@ function App() {
   const persistPartial = useCallback(async (partial) => {
     if (!user?.uid) return;
     try {
-      const clean = JSON.parse(JSON.stringify(partial));
+      const ts = Date.now();
+      lastLocalWriteTsRef.current = ts;
+      const clean = JSON.parse(JSON.stringify({ ...partial, clientWriteTs: ts }));
       await getDb().collection(USER_DATA_COLLECTION).doc(user.uid).set(
         {
           ...clean,
@@ -2308,10 +2326,8 @@ function App() {
 
   const updateDayPreferences = useCallback(async (next) => {
     const merged = mergeDayPreferences(next);
-    const ts = Date.now();
-    lastLocalDayPrefsTsRef.current = ts;
     setDayPreferences(merged);
-    await persistPartial({ dayPreferences: merged, dayPreferencesClientTs: ts });
+    await persistPartial({ dayPreferences: merged });
   }, [persistPartial]);
 
   const updateTrainingWeekDays = useCallback(async (nextSchedule) => {
@@ -2393,7 +2409,51 @@ function App() {
   // Total sessions count
   const totalSessions = logs.length;
 
+  const handleSyncFromServer = useCallback(async () => {
+    if (!user?.uid) return;
+    setSyncing(true);
+    try {
+      const db = getDb();
+      if (typeof db.waitForPendingWrites === 'function') {
+        await db.waitForPendingWrites();
+      }
+      lastLocalWriteTsRef.current = 0;
+      const ref = db.collection(USER_DATA_COLLECTION).doc(user.uid);
+      const snap = await ref.get({ source: 'server' });
+      if (!snap.exists) {
+        window.alert('No hay datos en la nube para esta cuenta.');
+        return;
+      }
+      const d = snap.data();
+      const tw = mergeTrainingWeekDays(d.trainingWeekDays);
+      setTrainingWeekDays(tw);
+      setRoutines(mergeRoutinesFromFirestore(d.routines));
+      setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
+      setDayPreferences(mergeDayPreferences(d.dayPreferences));
+      setLogs(Array.isArray(d.workoutLogs) ? d.workoutLogs : []);
+      setCardioLogs(Array.isArray(d.cardioLogs) ? d.cardioLogs : []);
+      setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
+    } catch (e) {
+      console.error(e);
+      window.alert('No se pudo sincronizar. ' + (e.message || e));
+    } finally {
+      setSyncing(false);
+    }
+  }, [user]);
+
   const handleLogout = async () => {
+    try {
+      const db = getDb();
+      // waitForPendingWrites puede colgar sin red; no bloquear cerrar sesión más de ~2s
+      if (typeof db.waitForPendingWrites === 'function') {
+        await Promise.race([
+          db.waitForPendingWrites().catch(() => {}),
+          new Promise((resolve) => setTimeout(resolve, 2000)),
+        ]);
+      }
+    } catch (e) {
+      console.error(e);
+    }
     try {
       const auth = getAuth();
       await auth.signOut();
@@ -2451,11 +2511,26 @@ function App() {
                 <span className="text-xs font-medium text-orange-400">{totalSessions}</span>
               </div>
             )}
-            <button onClick={handleLogout}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
-              title={user.email}>
-              <span className="text-xs text-white/40 max-w-[80px] truncate hidden sm:inline">{user.email}</span>
-              <span className="text-xs text-white/30">↗</span>
+            <button
+              type="button"
+              onClick={handleSyncFromServer}
+              disabled={syncing}
+              className="px-2 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-[10px] text-cyan-200/90 disabled:opacity-40"
+              title="Enviar pendientes y traer lo último del servidor (otro dispositivo)"
+            >
+              {syncing ? '…' : '↻ Sync'}
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-2 py-1.5 min-h-[36px] rounded-lg bg-white/5 hover:bg-white/10 transition-colors touch-manipulation"
+              title="Cerrar sesión"
+              aria-label="Cerrar sesión"
+            >
+              <span className="text-[10px] text-white/45 max-w-[72px] sm:max-w-[120px] truncate">{user.email}</span>
+              <span className="text-base leading-none text-white/60 shrink-0" aria-hidden="true" title="Apagar sesión">
+                ⏻
+              </span>
             </button>
           </div>
         </div>

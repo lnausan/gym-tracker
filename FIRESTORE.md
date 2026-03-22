@@ -11,7 +11,8 @@
 | `routines` | map | Rutinas de pesas por día (mismo objeto que antes en `localStorage`) |
 | `cardioSettings` | map | Config de cardio por día |
 | `dayPreferences` | map | Por cada día (`lunes`…`domingo`): `{ optional: boolean }`. Solo afecta la etiqueta **OPC** / “Opcional” en la UI; cada usuario elige qué días marcar. |
-| `dayPreferencesClientTs` | number | (Opcional) Marca de tiempo del cliente al guardar preferencias; evita que un snapshot viejo pise cambios recientes. |
+| `clientWriteTs` | number | Marca de tiempo (`Date.now()`) del **último** guardado desde la app; evita que un snapshot viejo pise rutinas, preferencias y ajustes. |
+| `dayPreferencesClientTs` | number | (Legado) Si existe, se usa junto con `clientWriteTs` para comparar versiones. |
 | `trainingWeekDays` | array de strings | Subconjunto ordenado de días de la semana en los que entrenás (ej. `["lunes","martes",…]`). Por defecto los 5 días históricos de la app; podés sumar **viernes**, **domingo** o los 7. Controla qué días aparecen en el selector principal. |
 | `workoutLogs` | array | Historial de sesiones de gimnasio (**por usuario**; cada perfil solo ve lo suyo) |
 | `cardioLogs` | array | Registros de cardio (**por usuario**) |
