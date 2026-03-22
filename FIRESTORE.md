@@ -41,3 +41,9 @@ service cloud.firestore {
 En Firebase Console: **Build → Firestore Database → Create database**.
 
 No hace falta crear colecciones a mano: la app crea `userData/{uid}` al guardar.
+
+## Si “no sincroniza” entre dispositivos
+
+1. Misma cuenta en todos lados (mismo email en Firebase Auth).
+2. Conexión a internet; si el guardado falla, la app muestra un alerta.
+3. En consola Firestore, el documento `userData/{uid}` debe actualizar `clientWriteTs` y `updatedAt` al guardar rutina/OPC.

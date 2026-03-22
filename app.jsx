@@ -2226,8 +2226,11 @@ function App() {
   const [cardioLogs, setCardioLogs] = useState([]);
   const [logs, setLogs] = useState([]);
   const [syncing, setSyncing] = useState(false);
-  /** Evita que onSnapshot pise rutinas/preferencias con un snapshot viejo antes de que el write llegue al servidor. */
+  /** Último clientWriteTs conocido como confirmado (snapshots / set exitoso). */
   const lastLocalWriteTsRef = useRef(0);
+  /** Mientras hay un set() en vuelo: timestamp optimista (solo hasta que confirme o falle). */
+  const pendingOptimisticWriteTsRef = useRef(0);
+  const persistInFlightRef = useRef(0);
 
   /** Alinea todo el estado con un documento leído del servidor (mismo criterio que ↻ Sync). */
   const applyFullDocFromServerData = useCallback((d) => {
@@ -2249,7 +2252,7 @@ function App() {
   const applyFullDocFromServerDataIfNotStale = useCallback(
     (d) => {
       const serverTs = effectiveServerWriteTs(d);
-      if (serverTs < lastLocalWriteTsRef.current) {
+      if (serverTs < Math.max(lastLocalWriteTsRef.current, pendingOptimisticWriteTsRef.current)) {
         return false;
       }
       applyFullDocFromServerData(d);
@@ -2276,7 +2279,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) lastLocalWriteTsRef.current = 0;
+    if (!user) {
+      lastLocalWriteTsRef.current = 0;
+      pendingOptimisticWriteTsRef.current = 0;
+      persistInFlightRef.current = 0;
+    }
   }, [user]);
 
   // Carga y sync en tiempo real desde Firestore (userData/{uid})
@@ -2329,7 +2336,7 @@ function App() {
         const d = snap.data();
         const tw = mergeTrainingWeekDays(d.trainingWeekDays);
         const serverTs = effectiveServerWriteTs(d);
-        const localTs = lastLocalWriteTsRef.current;
+        const localTs = Math.max(lastLocalWriteTsRef.current, pendingOptimisticWriteTsRef.current);
         // fromCache === false → snapshot del servidor (incluye otro navegador): siempre aplicar.
         // Solo caché: comparar timestamps para no pisar un get() reciente ni una edición optimista.
         const applySettings = shouldApplyFirestoreSettingsSnapshot(snap, serverTs, localTs);
@@ -2445,11 +2452,13 @@ function App() {
   /** Persiste en Firestore `userData/{uid}` — todo el historial y ajustes son por cuenta (perfil). */
   const persistPartial = useCallback(async (partial) => {
     if (!user?.uid) return;
+    const ref = getDb().collection(USER_DATA_COLLECTION).doc(user.uid);
+    const ts = Date.now();
+    persistInFlightRef.current += 1;
+    pendingOptimisticWriteTsRef.current = ts;
     try {
-      const ts = Date.now();
-      lastLocalWriteTsRef.current = ts;
       const clean = JSON.parse(JSON.stringify({ ...partial, clientWriteTs: ts }));
-      await getDb().collection(USER_DATA_COLLECTION).doc(user.uid).set(
+      await ref.set(
         {
           ...clean,
           schemaVersion: DATA_SCHEMA_VERSION,
@@ -2457,10 +2466,29 @@ function App() {
         },
         { merge: true }
       );
+      // Solo después de éxito: el servidor tiene (al menos) este clientWriteTs.
+      lastLocalWriteTsRef.current = ts;
     } catch (e) {
       console.error('persistPartial', e);
+      // Si el set falló, NO dejar lastLocalWriteTsRef “inflado”: si no, nunca se aplican datos del servidor y parece que no sincroniza.
+      try {
+        const snap = await fetchUserDocPreferServer(ref);
+        if (snap.exists) {
+          lastLocalWriteTsRef.current = effectiveServerWriteTs(snap.data());
+        } else {
+          lastLocalWriteTsRef.current = 0;
+        }
+      } catch (_) {
+        lastLocalWriteTsRef.current = 0;
+      }
       if (!isBenignFirestoreSessionRaceError(e)) {
         window.alert('No se pudo guardar en la nube. Revisá conexión y reglas de Firestore. ' + (e?.message || firestoreErrorText(e)));
+      }
+    } finally {
+      persistInFlightRef.current -= 1;
+      if (persistInFlightRef.current <= 0) {
+        persistInFlightRef.current = 0;
+        pendingOptimisticWriteTsRef.current = 0;
       }
     }
   }, [user]);
