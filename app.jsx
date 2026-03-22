@@ -8,6 +8,49 @@ import { createRoot } from 'react-dom/client';
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
+/** Texto útil del error (Firebase a veces no llena message igual en todos los entornos). */
+function firestoreErrorText(e) {
+  if (e == null) return '';
+  if (typeof e === 'string') return e;
+  const parts = [e.code, e.message, e.name];
+  try {
+    const s = e.toString && e.toString();
+    if (s && s !== '[object Object]') parts.push(s);
+  } catch (_) { /* ignore */ }
+  return parts.filter(Boolean).join(' ');
+}
+
+/** Solo errores de carrera con Auth / cierre de sesión — NO silenciar fallos de red (el usuario debe saber que no subió). */
+function isBenignFirestoreSessionRaceError(e) {
+  const t = firestoreErrorText(e).toLowerCase();
+  return /user change|waitforpendingwrites|wait for pending|aborted|cancelled/i.test(t);
+}
+
+/** Versión del doc en el snapshot para comparar con lastLocalWriteTsRef (clientWriteTs + updatedAt del servidor). */
+function effectiveServerWriteTs(d) {
+  const a = typeof d.clientWriteTs === 'number' ? d.clientWriteTs : 0;
+  const b = typeof d.dayPreferencesClientTs === 'number' ? d.dayPreferencesClientTs : 0;
+  const u = d.updatedAt && typeof d.updatedAt.toMillis === 'function' ? d.updatedAt.toMillis() : 0;
+  return Math.max(a, b, u);
+}
+
+/** Evita que una promesa cuelgue indefinidamente (p. ej. waitForPendingWrites sin red). */
+function withTimeout(promise, ms, label = 'operation') {
+  let timeoutId;
+  return Promise.race([
+    promise.finally(() => {
+      if (timeoutId != null) clearTimeout(timeoutId);
+    }),
+    new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        const err = new Error(`${label} timeout (${ms}ms)`);
+        err.code = 'deadline-exceeded';
+        reject(err);
+      }, ms);
+    }),
+  ]);
+}
+
 // ─── FIREBASE AUTH ──────────────────────────────────────────
 function getFirebaseConfig() {
   const cfg = (window.FIREBASE_CONFIG || {});
@@ -2218,10 +2261,7 @@ function App() {
         creatingDoc = false;
         const d = snap.data();
         const tw = mergeTrainingWeekDays(d.trainingWeekDays);
-        const serverTs = Math.max(
-          typeof d.clientWriteTs === 'number' ? d.clientWriteTs : 0,
-          typeof d.dayPreferencesClientTs === 'number' ? d.dayPreferencesClientTs : 0
-        );
+        const serverTs = effectiveServerWriteTs(d);
         const localTs = lastLocalWriteTsRef.current;
         const applySettings = serverTs >= localTs;
 
@@ -2230,7 +2270,8 @@ function App() {
           setRoutines(mergeRoutinesFromFirestore(d.routines));
           setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
           setDayPreferences(mergeDayPreferences(d.dayPreferences));
-          if (serverTs > 0) lastLocalWriteTsRef.current = 0;
+          // Alinear con el snapshot aplicado. NUNCA poner 0: un snapshot viejo en caché volvería a “ganar” (serverTs>=0).
+          lastLocalWriteTsRef.current = serverTs;
           setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
         }
 
@@ -2306,7 +2347,9 @@ function App() {
       );
     } catch (e) {
       console.error('persistPartial', e);
-      window.alert('No se pudo guardar en la nube. Revisá conexión y reglas de Firestore. ' + (e.message || e));
+      if (!isBenignFirestoreSessionRaceError(e)) {
+        window.alert('No se pudo guardar en la nube. Revisá conexión y reglas de Firestore. ' + (e?.message || firestoreErrorText(e)));
+      }
     }
   }, [user]);
 
@@ -2414,15 +2457,17 @@ function App() {
     setSyncing(true);
     try {
       const db = getDb();
-      // Puede rechazarse si cambió la sesión (“user change”); no es error grave.
-      if (typeof db.waitForPendingWrites === 'function') {
-        await Promise.race([
-          db.waitForPendingWrites().catch(() => {}),
-          new Promise((r) => setTimeout(r, 4000)),
-        ]);
-      }
-      lastLocalWriteTsRef.current = 0;
       const ref = db.collection(USER_DATA_COLLECTION).doc(user.uid);
+      // Vaciar cola local→servidor antes de leer (con tope de tiempo: sin esto el await puede colgarse y Sync queda en "…" para siempre).
+      try {
+        await withTimeout(db.waitForPendingWrites(), 12000, 'waitForPendingWrites');
+      } catch (w) {
+        if (w?.code === 'deadline-exceeded') {
+          console.warn('Sync: cola de escrituras aún pendiente o sin red; se sigue con la lectura.');
+        } else if (!isBenignFirestoreSessionRaceError(w)) {
+          console.warn('waitForPendingWrites', w);
+        }
+      }
       // Forzar servidor falla sin red aunque haya caché; en ese caso usar lectura normal (caché + red si puede).
       let snap;
       try {
@@ -2440,6 +2485,8 @@ function App() {
         return;
       }
       const d = snap.data();
+      // Alinear ref con el documento leído del servidor (misma lógica que onSnapshot).
+      lastLocalWriteTsRef.current = effectiveServerWriteTs(d);
       const tw = mergeTrainingWeekDays(d.trainingWeekDays);
       setTrainingWeekDays(tw);
       setRoutines(mergeRoutinesFromFirestore(d.routines));
@@ -2449,10 +2496,10 @@ function App() {
       setCardioLogs(Array.isArray(d.cardioLogs) ? d.cardioLogs : []);
       setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
     } catch (e) {
-      console.error(e);
-      const msg = String(e?.message || e || '');
-      if (!/user change|waitForPendingWrites|Failed to get document|local cache/i.test(msg)) {
-        window.alert('No se pudo sincronizar. ' + msg);
+      const msg = firestoreErrorText(e);
+      console.error('sync', e, msg);
+      if (!isBenignFirestoreSessionRaceError(e)) {
+        window.alert('No se pudo sincronizar. ' + (e?.message || msg));
       }
     } finally {
       setSyncing(false);
@@ -2522,10 +2569,12 @@ function App() {
               type="button"
               onClick={handleSyncFromServer}
               disabled={syncing}
-              className="px-2 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-[10px] text-cyan-200/90 disabled:opacity-40"
-              title="Enviar pendientes y traer lo último del servidor (otro dispositivo)"
+              aria-busy={syncing}
+              aria-label={syncing ? 'Sincronizando…' : 'Forzar lectura desde la nube'}
+              className="px-2 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-[10px] text-cyan-200/90 disabled:opacity-40 disabled:pointer-events-none"
+              title="Opcional: la app ya actualiza sola en tiempo real. Usá esto si editaste en otro celular o querés forzar lo último del servidor. Mientras dice … está trabajando (máx. ~12 s)."
             >
-              {syncing ? '…' : '↻ Sync'}
+              {syncing ? '…' : '↻'}
             </button>
             <button
               type="button"
