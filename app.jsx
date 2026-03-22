@@ -312,6 +312,157 @@ function shiftWeek(weekId, delta) {
   return `${newYear}-W${String(newWeek).padStart(2, '0')}`;
 }
 
+// ─── ANALYTICS / PROGRESIÓN (producto) ────────────────────────
+function sessionWeekId(session) {
+  if (!session?.date) return null;
+  return getWeekId(new Date(`${session.date}T12:00:00`));
+}
+
+function filterLogsByWeek(logs, weekId) {
+  if (!logs?.length || !weekId) return [];
+  return logs.filter((l) => sessionWeekId(l) === weekId);
+}
+
+function filterCardioByWeek(cardioLogs, weekId) {
+  if (!cardioLogs?.length || !weekId) return [];
+  return cardioLogs.filter((c) => {
+    if (!c?.date) return false;
+    return getWeekId(new Date(`${c.date}T12:00:00`)) === weekId;
+  });
+}
+
+function totalVolumeSessions(sessions) {
+  return sessions.reduce((sum, s) => {
+    const v = (s.exercises || []).reduce((a, ex) => a + calculateVolume(ex.sets || []), 0);
+    return sum + v;
+  }, 0);
+}
+
+function uniqueDayKeysTrained(sessions) {
+  const set = new Set();
+  sessions.forEach((s) => { if (s.dayKey) set.add(s.dayKey); });
+  return set.size;
+}
+
+/** Compara volumen semanal vs semana anterior: 'up' | 'flat' | 'down' */
+function volumeTrendVsPrevious(currentVol, previousVol) {
+  if (previousVol <= 0) return currentVol > 0 ? 'up' : 'flat';
+  const ratio = currentVol / previousVol;
+  if (ratio > 1.05) return 'up';
+  if (ratio < 0.95) return 'down';
+  return 'flat';
+}
+
+function trendEmoji(trend) {
+  if (trend === 'up') return '🔼';
+  if (trend === 'down') return '🔽';
+  return '➖';
+}
+
+/** Sugerencia automática: objetivo de reps en top set (heurística simple). */
+function progressionSuggestion(exerciseName, dayKey, logs) {
+  const sameDay = (logs || [])
+    .filter((l) => l.dayKey === dayKey && (l.exercises || []).some((e) => e.name === exerciseName))
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  if (sameDay.length === 0) {
+    return { kind: 'neutral', text: 'Primera vez: cumplí el top set de la rutina.' };
+  }
+  const last = sameDay[sameDay.length - 1];
+  const prev = sameDay.length > 1 ? sameDay[sameDay.length - 2] : null;
+  const lastEx = last.exercises.find((e) => e.name === exerciseName);
+  const prevEx = prev?.exercises.find((e) => e.name === exerciseName);
+  if (!lastEx) return { kind: 'neutral', text: 'Sin datos de este ejercicio.' };
+  const lastTop = getTopSetKg(lastEx.sets || []);
+  const lastTopSet = (lastEx.sets || []).find((s) => s.setType === 'top') || lastEx.sets?.[0];
+  const reps = lastTopSet?.reps || 0;
+  const prevTop = prevEx ? getTopSetKg(prevEx.sets || []) : 0;
+
+  if (prev && lastTop > prevTop) {
+    return { kind: 'up', text: '🔼 Llegaste con más peso: seguí progresando de a 2,5 kg cuando el top set salga limpio.' };
+  }
+  if (prev && lastTop < prevTop && prevTop > 0) {
+    return { kind: 'down', text: '🔽 Bajó el peso. Mantené 1–2 semanas o bajá 2,5 kg si se repite.' };
+  }
+  if (reps >= 10) {
+    return { kind: 'up', text: '🔼 Muchas reps en top: probá subir 2,5 kg la próxima.' };
+  }
+  if (reps > 0 && reps < 6) {
+    return { kind: 'down', text: '🔽 Pocas reps: mantené peso hasta dominar 8+ o bajá carga.' };
+  }
+  return { kind: 'flat', text: '➖ Mantené peso hasta superar reps/RPE con buena técnica.' };
+}
+
+/** Plantillas: mismos días/ejercicios, distinta filosofía (notas + descansos). */
+function buildPresetRoutines(presetType) {
+  const base = JSON.parse(JSON.stringify(DEFAULT_ROUTINES));
+  if (presetType === 'hipertrofia') return base;
+  Object.keys(base).forEach((day) => {
+    base[day].forEach((ex) => {
+      if (presetType === 'fuerza') {
+        ex.note = `[Fuerza] 3–6 reps pesadas, RPE 8–9. ${ex.note || ''}`.trim();
+        if (ex.rest && ex.rest !== '—') ex.rest = '3\'';
+      } else if (presetType === 'definicion') {
+        ex.note = `[Definición] 12–20 reps, RPE 7–8, descansos cortos. ${ex.note || ''}`.trim();
+        if (ex.rest && ex.rest.includes('2:30')) ex.rest = '90s';
+      }
+    });
+  });
+  return base;
+}
+
+function downloadTextFile(filename, text) {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function buildWeeklyExportText(weekId, logs, cardioLogs) {
+  const wLogs = filterLogsByWeek(logs, weekId);
+  const cLogs = filterCardioByWeek(cardioLogs, weekId);
+  const vol = totalVolumeSessions(wLogs);
+  const days = uniqueDayKeysTrained(wLogs);
+  let t = `GYM TRACKER — Resumen ${weekId}\n`;
+  t += `Rango: ${getWeekDates(weekId)}\n`;
+  t += `Volumen total: ${vol.toLocaleString()} kg\n`;
+  t += `Días con entreno de fuerza: ${days}\n`;
+  t += `Sesiones: ${wLogs.length}\n`;
+  if (cLogs.length) t += `Cardio (registros): ${cLogs.length}\n`;
+  t += `\n--- Sesiones ---\n`;
+  wLogs.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).forEach((s) => {
+    t += `\n${s.date} · ${s.dayKey} · ${s.duration || 0} min\n`;
+    (s.exercises || []).forEach((ex) => {
+      const line = (ex.sets || []).map((x) => `${x.kg}×${x.reps}`).join(', ');
+      t += `  • ${ex.name}: ${line}\n`;
+    });
+  });
+  if (cLogs.length) {
+    t += `\n--- Cardio ---\n`;
+    cLogs.forEach((c) => {
+      t += `${c.date}: ${c.minutes} min ${c.type || ''} ${c.done ? '✓' : ''}\n`;
+    });
+  }
+  return t;
+}
+
+function printWeeklySummary(weekId, logs, cardioLogs) {
+  const html = `
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>Resumen ${weekId}</title>
+<style>
+  body { font-family: system-ui, sans-serif; padding: 24px; color: #111; }
+  h1 { font-size: 18px; }
+  pre { white-space: pre-wrap; font-size: 12px; }
+</style></head><body>
+<h1>Gym Tracker — ${weekId}</h1>
+<pre>${buildWeeklyExportText(weekId, logs, cardioLogs).replace(/</g, '&lt;')}</pre>
+<script>window.onload = () => { window.print(); }</script>
+</body></html>`;
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
+}
+
 // ─── COMPONENTS ─────────────────────────────────────────────
 
 // -- Mini Sparkline SVG --
@@ -343,6 +494,7 @@ function BottomTabBar({ active, onChange }) {
   const tabs = [
     { key: 'entrenar',  icon: '💪', label: 'Entrenar' },
     { key: 'cardio',    icon: '🏃‍♂️', label: 'Cardio' },
+    { key: 'dashboard', icon: '📈', label: 'Panel' },
     { key: 'historial', icon: '📊', label: 'Historial' },
     { key: 'rutina',    icon: '⚙️', label: 'Rutina' },
   ];
@@ -906,12 +1058,18 @@ function HistorialView({ logs, activeDay, onDayChange }) {
         ) : (
           dayLogs.map((session, si) => {
             const totalVolume = session.exercises.reduce((sum, ex) => sum + calculateVolume(ex.sets), 0);
+            const older = dayLogs[si + 1];
+            const prevVol = older ? older.exercises.reduce((sum, ex) => sum + calculateVolume(ex.sets), 0) : null;
+            const volTrend = prevVol != null && prevVol > 0 ? volumeTrendVsPrevious(totalVolume, prevVol) : null;
             return (
               <div key={session.id} className="glass rounded-2xl p-4 animate-slide-up" style={{ animationDelay: `${si * 40}ms` }}>
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <p className="font-bold text-sm">{session.date}</p>
-                    <p className="text-xs text-white/30">{session.duration} min · Vol: {totalVolume.toLocaleString()} kg</p>
+                    <p className="text-xs text-white/30">
+                      {session.duration} min · Vol: {totalVolume.toLocaleString()} kg
+                      {volTrend != null && <span className="ml-1" title="vs sesión anterior (mismo día)">{trendEmoji(volTrend)}</span>}
+                    </p>
                   </div>
                 </div>
                 <div className="space-y-3">
@@ -1066,7 +1224,7 @@ function RutinaExerciseEditor({ exercise, index, total, dayColor, onSave, onDele
   );
 }
 
-function RutinaView({ routines, cardioSettings, onUpdateRoutines, onUpdateCardioSettings, activeDay, onDayChange }) {
+function RutinaView({ routines, cardioSettings, onUpdateRoutines, onUpdateCardioSettings, activeDay, onDayChange, onApplyPreset, onCloneDayTo }) {
   const [adding, setAdding] = useState(false);
   const [newExercise, setNewExercise] = useState({ name: '', topSet: '', backOff: '—', rest: '2\'', note: '' });
   const [confirmReset, setConfirmReset] = useState(false);
@@ -1127,6 +1285,8 @@ function RutinaView({ routines, cardioSettings, onUpdateRoutines, onUpdateCardio
     setConfirmReset(false);
   };
 
+  const [cloneTarget, setCloneTarget] = useState(() => DAY_CONFIG.find((d) => d.key !== activeDay)?.key || 'martes');
+
   return (
     <div className="pb-20">
       <DaySelector active={activeDay} onChange={onDayChange} />
@@ -1138,6 +1298,50 @@ function RutinaView({ routines, cardioSettings, onUpdateRoutines, onUpdateCardio
       </div>
 
       <div className="px-4 space-y-3">
+        <div className="glass rounded-2xl p-4 space-y-3" style={{ borderColor: 'rgba(59,130,246,0.35)', background: 'rgba(59,130,246,0.08)' }}>
+          <p className="font-bold text-sm">📋 Plantillas prearmadas</p>
+          <p className="text-[11px] text-white/40">Reemplaza toda la rutina (todos los días). Podés editar después.</p>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { key: 'hipertrofia', label: 'Hipertrofia' },
+              { key: 'fuerza', label: 'Fuerza' },
+              { key: 'definicion', label: 'Definición' },
+            ].map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => onApplyPreset && onApplyPreset(p.key)}
+                className="py-2 rounded-lg text-[11px] font-medium bg-white/10 hover:bg-white/15"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="glass rounded-2xl p-4 space-y-2" style={{ borderColor: 'rgba(168,85,247,0.35)', background: 'rgba(168,85,247,0.08)' }}>
+          <p className="font-bold text-sm">🔗 Clonar día</p>
+          <p className="text-[11px] text-white/40">Copiá los ejercicios de <span className="text-white/70">{DAY_MAP[activeDay]?.label}</span> a otro día.</p>
+          <div className="flex gap-2 items-center">
+            <select
+              value={cloneTarget}
+              onChange={(e) => setCloneTarget(e.target.value)}
+              className="flex-1 h-10 rounded-lg bg-white/10 px-2 text-xs text-white border-0"
+            >
+              {DAY_CONFIG.filter((d) => d.key !== activeDay).map((d) => (
+                <option key={d.key} value={d.key}>{d.emoji} {d.label}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => onCloneDayTo && onCloneDayTo(activeDay, cloneTarget)}
+              className="px-4 py-2 rounded-lg text-xs font-medium bg-purple-500/30 text-purple-200 hover:bg-purple-500/40"
+            >
+              Clonar
+            </button>
+          </div>
+        </div>
+
         <div className="glass rounded-2xl p-4 space-y-3" style={{ borderColor: `${dayConfig.color}33`, background: `${dayConfig.color}0a` }}>
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -1395,6 +1599,115 @@ function CardioView({ cardioSettings, cardioLogs, onSaveCardioLog, activeDay, on
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── DASHBOARD (producto) ───────────────────────────────────
+
+function DashboardView({ logs, cardioLogs }) {
+  const [weekId, setWeekId] = useState(() => getWeekId(new Date()));
+  const weekLogs = useMemo(() => filterLogsByWeek(logs, weekId), [logs, weekId]);
+  const prevWeekId = useMemo(() => shiftWeek(weekId, -1), [weekId]);
+  const prevWeekLogs = useMemo(() => filterLogsByWeek(logs, prevWeekId), [logs, prevWeekId]);
+  const weekCardio = useMemo(() => filterCardioByWeek(cardioLogs, weekId), [cardioLogs, weekId]);
+
+  const vol = useMemo(() => totalVolumeSessions(weekLogs), [weekLogs]);
+  const prevVol = useMemo(() => totalVolumeSessions(prevWeekLogs), [prevWeekLogs]);
+  const trend = volumeTrendVsPrevious(vol, prevVol);
+  const daysTrained = uniqueDayKeysTrained(weekLogs);
+  const daysPrev = uniqueDayKeysTrained(prevWeekLogs);
+
+  const topExerciseNames = useMemo(() => {
+    const m = {};
+    weekLogs.forEach((s) => {
+      (s.exercises || []).forEach((ex) => {
+        m[ex.name] = (m[ex.name] || 0) + calculateVolume(ex.sets || []);
+      });
+    });
+    return Object.entries(m)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([name]) => name);
+  }, [weekLogs]);
+
+  const dayKeyForExercise = (exerciseName) => {
+    for (let i = weekLogs.length - 1; i >= 0; i--) {
+      const s = weekLogs[i];
+      if ((s.exercises || []).some((e) => e.name === exerciseName)) return s.dayKey;
+    }
+    return 'lunes';
+  };
+
+  return (
+    <div className="pb-24 px-4">
+      <div className="flex items-center justify-between py-3">
+        <button type="button" onClick={() => setWeekId(shiftWeek(weekId, -1))} className="px-3 py-2 rounded-xl bg-white/10 text-sm">←</button>
+        <div className="text-center">
+          <p className="font-heading text-2xl tracking-wider text-white">📈 {weekId}</p>
+          <p className="text-[11px] text-white/35">{getWeekDates(weekId)}</p>
+        </div>
+        <button type="button" onClick={() => setWeekId(shiftWeek(weekId, 1))} className="px-3 py-2 rounded-xl bg-white/10 text-sm">→</button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="glass rounded-2xl p-4">
+          <p className="text-[10px] text-white/40 uppercase tracking-wider">Volumen semanal</p>
+          <p className="text-2xl font-bold mt-1">{vol.toLocaleString()} <span className="text-sm font-normal text-white/40">kg</span></p>
+          <p className="text-xs text-white/45 mt-1">{trendEmoji(trend)} vs sem. ant. ({prevVol.toLocaleString()} kg)</p>
+        </div>
+        <div className="glass rounded-2xl p-4">
+          <p className="text-[10px] text-white/40 uppercase tracking-wider">Días entrenados</p>
+          <p className="text-2xl font-bold mt-1">{daysTrained}</p>
+          <p className="text-xs text-white/45 mt-1">Sem. ant.: {daysPrev} · Sesiones: {weekLogs.length}</p>
+        </div>
+      </div>
+
+      {weekCardio.length > 0 && (
+        <div className="glass rounded-2xl p-4 mb-3">
+          <p className="font-bold text-sm mb-1">🏃‍♂️ Cardio (semana)</p>
+          <p className="text-xs text-white/40">{weekCardio.length} registro(s)</p>
+        </div>
+      )}
+
+      <div className="glass rounded-2xl p-4 mb-3">
+        <p className="font-bold text-sm mb-2">Progresión automática (sugerencias)</p>
+        <p className="text-[11px] text-white/35 mb-3">Basado en tus últimas sesiones de la semana.</p>
+        <div className="space-y-2">
+          {topExerciseNames.length === 0 ? (
+            <p className="text-xs text-white/30">Entrená esta semana para ver sugerencias.</p>
+          ) : (
+            topExerciseNames.map((name) => {
+              const dk = dayKeyForExercise(name);
+              const sug = progressionSuggestion(name, dk, logs);
+              const col = sug.kind === 'up' ? '#22c55e' : sug.kind === 'down' ? '#ef4444' : '#eab308';
+              return (
+                <div key={name} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10">
+                  <p className="text-xs font-bold truncate" style={{ color: col }}>{name}</p>
+                  <p className="text-[11px] text-white/50 mt-0.5">{sug.text}</p>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={() => downloadTextFile(`gym-resumen-${weekId}.txt`, buildWeeklyExportText(weekId, logs, cardioLogs))}
+          className="w-full py-3 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/15"
+        >
+          📄 Descargar resumen (TXT)
+        </button>
+        <button
+          type="button"
+          onClick={() => printWeeklySummary(weekId, logs, cardioLogs)}
+          className="w-full py-3 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/15"
+        >
+          🖨️ Imprimir / guardar como PDF
+        </button>
       </div>
     </div>
   );
@@ -1686,6 +1999,30 @@ function App() {
     });
   }, [persistPartial]);
 
+  const applyPreset = useCallback(async (presetType) => {
+    const labels = { hipertrofia: 'Hipertrofia', fuerza: 'Fuerza', definicion: 'Definición' };
+    const label = labels[presetType] || presetType;
+    if (!window.confirm(`¿Reemplazar TODA la rutina (todos los días) por la plantilla "${label}"?`)) return;
+    const next = buildPresetRoutines(presetType);
+    await updateRoutines(next);
+  }, [updateRoutines]);
+
+  const cloneDayTo = useCallback(async (fromDay, toDay) => {
+    if (!fromDay || !toDay || fromDay === toDay) return;
+    const source = routines[fromDay] || [];
+    if (!source.length) {
+      window.alert('No hay ejercicios para copiar en ese día.');
+      return;
+    }
+    const copy = JSON.parse(JSON.stringify(source));
+    copy.forEach((ex, i) => {
+      ex.id = uid();
+      ex.order = i;
+    });
+    const next = { ...routines, [toDay]: copy };
+    await updateRoutines(next);
+  }, [routines, updateRoutines]);
+
   // Total sessions count
   const totalSessions = logs.length;
 
@@ -1771,12 +2108,17 @@ function App() {
             onDayChange={setActiveDay}
           />
         )}
+        {activeTab === 'dashboard' && (
+          <DashboardView logs={logs} cardioLogs={cardioLogs} />
+        )}
         {activeTab === 'historial' && (
           <HistorialView logs={logs} activeDay={activeDay} onDayChange={setActiveDay} />
         )}
         {activeTab === 'rutina' && (
           <RutinaView routines={routines} cardioSettings={cardioSettings} onUpdateCardioSettings={updateCardioSettings}
             onUpdateRoutines={updateRoutines}
+            onApplyPreset={applyPreset}
+            onCloneDayTo={cloneDayTo}
             activeDay={activeDay} onDayChange={setActiveDay} />
         )}
       </main>
