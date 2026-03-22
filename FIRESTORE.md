@@ -12,8 +12,8 @@
 | `cardioSettings` | map | Config de cardio por día |
 | `dayPreferences` | map | Por cada día (`lunes`…`domingo`): `{ optional: boolean }`. Solo afecta la etiqueta **OPC** / “Opcional” en la UI; cada usuario elige qué días marcar. |
 | `trainingWeekDays` | array de strings | Subconjunto ordenado de días de la semana en los que entrenás (ej. `["lunes","martes",…]`). Por defecto los 5 días históricos de la app; podés sumar **viernes**, **domingo** o los 7. Controla qué días aparecen en el selector principal. |
-| `workoutLogs` | array | Historial de sesiones de gimnasio |
-| `cardioLogs` | array | Registros de cardio |
+| `workoutLogs` | array | Historial de sesiones de gimnasio (**por usuario**; cada perfil solo ve lo suyo) |
+| `cardioLogs` | array | Registros de cardio (**por usuario**) |
 | `updatedAt` | timestamp | Última escritura (servidor) |
 
 > Límite práctico: un documento Firestore ≤ 1 MB. Si el historial crece mucho, en el futuro se puede pasar `workoutLogs` / `cardioLogs` a subcolecciones.

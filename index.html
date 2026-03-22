@@ -8,10 +8,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-  <!-- Primera pintada rápida: splash antes de que cargue el bundle -->
+  <!-- Sin scripts bloqueantes en head: el body puede pintar el splash de inmediato -->
   <link rel="preload" href="app.compiled.css" as="style">
-  <link rel="preload" href="https://unpkg.com/react@18/umd/react.production.min.js" as="script" crossorigin>
-  <link rel="preload" href="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" as="script" crossorigin>
+  <link rel="preload" href="app.compiled.js" as="script">
   <style>
     #boot-splash {
       position: fixed; inset: 0; z-index: 99999;
@@ -29,31 +28,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
 
-  <!-- CSS: npm run build → app.compiled.css (Tailwind en build, sin CDN) -->
+  <!-- CSS: npm run build → app.compiled.css -->
   <link rel="stylesheet" href="app.compiled.css">
-
-  <!-- Firebase (Auth + Firestore) - compat build -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-  <script>
-    // Pegá acá tu config (Firebase Console → Project settings → Your apps → Firebase SDK snippet → Config)
-    // NOTA: en sitios estáticos, estas keys son públicas; protegé tu proyecto con reglas/allowed domains.
-    window.FIREBASE_CONFIG = window.FIREBASE_CONFIG || {
-      apiKey: "AIzaSyBGH-wHSovsA5o3zuVuyq1v-JhxCm2Wh6U",
-      authDomain: "gym-tracker-6d918.firebaseapp.com",
-      projectId: "gym-tracker-6d918",
-      appId: "1:461257443259:web:5e150937ff3b97c935269e",
-      // opcionales:
-      storageBucket: "gym-tracker-6d918.firebasestorage.app",
-      messagingSenderId: "461257443259",
-      measurementId: "G-TJD8G1GD8K",
-    };
-  </script>
-  <!-- React 18 -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <!-- app.compiled.js se genera con: npm run build (esbuild; sin Babel en el navegador) -->
 </head>
 <body>
   <div id="root">
@@ -62,6 +38,23 @@
       <span class="s">Cargando app…</span>
     </div>
   </div>
+
+  <!-- Firebase (mismo orden; después del HTML visible para no bloquear la primera pintada) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script>
+    window.FIREBASE_CONFIG = window.FIREBASE_CONFIG || {
+      apiKey: "AIzaSyBGH-wHSovsA5o3zuVuyq1v-JhxCm2Wh6U",
+      authDomain: "gym-tracker-6d918.firebaseapp.com",
+      projectId: "gym-tracker-6d918",
+      appId: "1:461257443259:web:5e150937ff3b97c935269e",
+      storageBucket: "gym-tracker-6d918.firebasestorage.app",
+      messagingSenderId: "461257443259",
+      measurementId: "G-TJD8G1GD8K",
+    };
+  </script>
+  <!-- React va empaquetado en app.compiled.js (menos peticiones a unpkg; mejor en Vercel) -->
   <script src="app.compiled.js"></script>
 </body>
 </html>

@@ -1,23 +1,13 @@
-# Recuperar historial (localStorage → Firestore)
+# Historial y migración local → Firestore
 
-## Qué pasaba antes
+## Comportamiento actual
 
-Si tu cuenta **ya tenía** un documento en Firestore (por ejemplo creado desde la PC) y en el **celular** tenías sesiones solo en `localStorage`, al abrir la app se **cargaba la nube** y se **borraba el almacenamiento local** sin subir el historial del teléfono. Eso podía hacer “desaparecer” lo cargado en jueves/sábado en el móvil.
+- Cada **cuenta** (Firebase Auth) tiene su historial en **`userData/{uid}`** en Firestore: campos `workoutLogs` y `cardioLogs`.
+- Al **primer inicio de sesión**, si todavía había datos viejos en `localStorage` (`gym-logs`, etc.), la app los **fusiona** con la nube y limpia el local (una sola vez).
 
-**Desde la versión actual:** al iniciar sesión se **fusionan** automáticamente `gym-logs` y `gym-cardio-logs` locales con `workoutLogs` / `cardioLogs` en Firestore antes de borrar el local.
+## Si no ves sesiones antiguas
 
-## Si todavía no ves datos
+- Revisá que estés en la **misma cuenta** que cuando las registraste.
+- Desde **Firebase Console → Firestore → `userData` → tu `uid`** podés verificar el campo `workoutLogs`.
 
-1. **Mismo dispositivo/navegador** donde entrenaste (Safari vs Chrome = almacenamiento distinto).
-2. En la app: **Historial** → **“Buscar y fusionar datos en este navegador”** (ahora también busca otras claves además de `gym-logs`).
-3. Si igual no hay nada en local, usá **“Importar JSON”**: pegá el array `workoutLogs` desde **Firebase Console** (documento `userData` / tu uid) o un archivo `.json` de backup.
-4. Si el aviso lista claves vacías, el historial local ya se borró; solo queda la nube o un backup manual.
-
-## Claves en `localStorage`
-
-- `gym-logs` — sesiones de pesas (JSON array)
-- `gym-cardio-logs` — cardio
-
-## Si ya no hay copia local
-
-Revisá en **Firebase Console → Firestore → `userData` → tu `uid` → campo `workoutLogs`**. Si ahí están las sesiones, el problema es de la app o de la cuenta; si el array está vacío y no hay backup, no se puede reconstruir solo desde el cliente.
+La app ya **no incluye** botones de “fusionar navegador” ni importación JSON en pantalla; el guardado día a día es siempre en la nube por perfil.
