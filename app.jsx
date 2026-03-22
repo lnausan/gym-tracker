@@ -2414,8 +2414,12 @@ function App() {
     setSyncing(true);
     try {
       const db = getDb();
+      // Puede rechazarse si cambió la sesión (“user change”); no es error grave.
       if (typeof db.waitForPendingWrites === 'function') {
-        await db.waitForPendingWrites();
+        await Promise.race([
+          db.waitForPendingWrites().catch(() => {}),
+          new Promise((r) => setTimeout(r, 4000)),
+        ]);
       }
       lastLocalWriteTsRef.current = 0;
       const ref = db.collection(USER_DATA_COLLECTION).doc(user.uid);
@@ -2435,25 +2439,17 @@ function App() {
       setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
     } catch (e) {
       console.error(e);
-      window.alert('No se pudo sincronizar. ' + (e.message || e));
+      const msg = String(e?.message || e || '');
+      if (!/user change|waitForPendingWrites/i.test(msg)) {
+        window.alert('No se pudo sincronizar. ' + msg);
+      }
     } finally {
       setSyncing(false);
     }
   }, [user]);
 
   const handleLogout = async () => {
-    try {
-      const db = getDb();
-      // waitForPendingWrites puede colgar sin red; no bloquear cerrar sesión más de ~2s
-      if (typeof db.waitForPendingWrites === 'function') {
-        await Promise.race([
-          db.waitForPendingWrites().catch(() => {}),
-          new Promise((resolve) => setTimeout(resolve, 2000)),
-        ]);
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    // No usar waitForPendingWrites aquí: al cerrar sesión Firestore lo rechaza (“user change”) y rompe la UX.
     try {
       const auth = getAuth();
       await auth.signOut();
