@@ -1467,9 +1467,10 @@ function RutinaView({ routines, cardioSettings, dayPreferences, trainingWeekDays
   };
 
   const toggleOptionalDay = (checked) => {
+    const base = mergeDayPreferences(dayPreferences || {});
     const next = {
-      ...dayPreferences,
-      [activeDay]: { ...(dayPreferences[activeDay] || { optional: false }), optional: !!checked },
+      ...base,
+      [activeDay]: { ...base[activeDay], optional: !!checked },
     };
     onUpdateDayPreferences(next);
   };
@@ -2134,6 +2135,8 @@ function App() {
   const [trainingWeekDays, setTrainingWeekDays] = useState(null);
   const [cardioLogs, setCardioLogs] = useState([]);
   const [logs, setLogs] = useState([]);
+  /** Evita que onSnapshot pise dayPreferences con un snapshot viejo antes de que el write llegue al servidor. */
+  const lastLocalDayPrefsTsRef = useRef(0);
 
   // Check auth session on mount
   useEffect(() => {
@@ -2151,6 +2154,10 @@ function App() {
     }
     return () => { if (unsubscribe) unsubscribe(); };
   }, []);
+
+  useEffect(() => {
+    if (!user) lastLocalDayPrefsTsRef.current = 0;
+  }, [user]);
 
   // Carga y sync en tiempo real desde Firestore (userData/{uid})
   useEffect(() => {
@@ -2203,7 +2210,13 @@ function App() {
         setTrainingWeekDays(tw);
         setRoutines(mergeRoutinesFromFirestore(d.routines));
         setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
-        setDayPreferences(mergeDayPreferences(d.dayPreferences));
+
+        const serverPrefsTs = typeof d.dayPreferencesClientTs === 'number' ? d.dayPreferencesClientTs : 0;
+        const localPrefsTs = lastLocalDayPrefsTsRef.current;
+        if (serverPrefsTs >= localPrefsTs) {
+          setDayPreferences(mergeDayPreferences(d.dayPreferences));
+          if (serverPrefsTs > 0) lastLocalDayPrefsTsRef.current = 0;
+        }
 
         let workoutLogs = Array.isArray(d.workoutLogs) ? d.workoutLogs : [];
         let cardioLogs = Array.isArray(d.cardioLogs) ? d.cardioLogs : [];
@@ -2295,8 +2308,10 @@ function App() {
 
   const updateDayPreferences = useCallback(async (next) => {
     const merged = mergeDayPreferences(next);
+    const ts = Date.now();
+    lastLocalDayPrefsTsRef.current = ts;
     setDayPreferences(merged);
-    await persistPartial({ dayPreferences: merged });
+    await persistPartial({ dayPreferences: merged, dayPreferencesClientTs: ts });
   }, [persistPartial]);
 
   const updateTrainingWeekDays = useCallback(async (nextSchedule) => {
