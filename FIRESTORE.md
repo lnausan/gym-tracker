@@ -48,3 +48,4 @@ No hace falta crear colecciones a mano: la app crea `userData/{uid}` al guardar.
 2. Conexión a internet; si el guardado falla, la app muestra un alerta.
 3. En consola Firestore, el documento `userData/{uid}` debe actualizar `clientWriteTs` y `updatedAt` al guardar rutina/OPC.
 4. La app espera a que Firestore **confirme en el servidor** cada guardado (no solo en la caché local). Si estás **sin red**, los cambios quedan en cola hasta volver online; en otro celular no aparecen hasta entonces.
+5. Si ves en consola *“client is offline”* o *“Failed to get document”*: el dispositivo **no está llegando al servidor** (WiFi/datos, modo avión, VPN). Conectá internet y tocá **↻** o recargá la página.

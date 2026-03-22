@@ -51,16 +51,33 @@ function withTimeout(promise, ms, label = 'operation') {
   ]);
 }
 
-/** Lectura que prefiere el servidor (evita caché vieja al abrir otro navegador). */
+/** Sin red o Firestore “offline”: get(server) falla; no alertar como error grave. */
+function isFirestoreOfflineOrNetworkError(e) {
+  if (e == null) return false;
+  const code = String(e.code || '');
+  if (code === 'unavailable' || code === 'failed-precondition') return true;
+  const msg = firestoreErrorText(e).toLowerCase();
+  return /offline|unavailable|network|client is offline|failed to get document|could not reach|no internet/i.test(msg);
+}
+
+/**
+ * Lectura que prefiere el servidor; si no hay red, cae a caché local (sin cartel de error).
+ */
 async function fetchUserDocPreferServer(ref) {
   try {
     return await ref.get({ source: 'server' });
   } catch (err) {
-    const m = String(err?.message || '');
-    if (/Failed to get document|local cache|unavailable|network/i.test(m)) {
+    if (!isFirestoreOfflineOrNetworkError(err)) throw err;
+    try {
       return await ref.get();
+    } catch (err2) {
+      if (!isFirestoreOfflineOrNetworkError(err2)) throw err2;
+      try {
+        return await ref.get({ source: 'cache' });
+      } catch (err3) {
+        throw err2;
+      }
     }
-    throw err;
   }
 }
 
@@ -2629,7 +2646,12 @@ function App() {
     } catch (e) {
       const msg = firestoreErrorText(e);
       console.error('sync', e, msg);
-      if (!isBenignFirestoreSessionRaceError(e)) {
+      const quiet =
+        isBenignFirestoreSessionRaceError(e) || isFirestoreOfflineOrNetworkError(e);
+      if (quiet && isFirestoreOfflineOrNetworkError(e)) {
+        console.warn('Sync sin red o solo caché; cuando haya internet probá de nuevo.');
+      }
+      if (!quiet) {
         window.alert('No se pudo sincronizar. ' + (e?.message || msg));
       }
     } finally {
