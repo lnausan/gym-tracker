@@ -71,6 +71,41 @@ function clearLocalGymKeys() {
   });
 }
 
+/** Une historial de la nube con datos viejos de localStorage (misma sesión no duplica). */
+function mergeWorkoutLogs(cloud, local) {
+  const a = Array.isArray(cloud) ? cloud : [];
+  const b = Array.isArray(local) ? local : [];
+  const map = new Map();
+  const keyOf = (s) => {
+    if (!s) return null;
+    if (s.id) return `id:${String(s.id)}`;
+    return `d:${s.date || ''}|${s.dayKey || ''}|${String(s.duration ?? '')}`;
+  };
+  [...a, ...b].forEach((s) => {
+    const k = keyOf(s);
+    if (!k) return;
+    if (!map.has(k)) map.set(k, s);
+  });
+  return [...map.values()].sort((x, y) => String(x.date || '').localeCompare(String(y.date || '')));
+}
+
+function mergeCardioLogs(cloud, local) {
+  const a = Array.isArray(cloud) ? cloud : [];
+  const b = Array.isArray(local) ? local : [];
+  const map = new Map();
+  const keyOf = (c) => {
+    if (!c) return null;
+    if (c.id) return `id:${String(c.id)}`;
+    return `d:${c.date || ''}|${c.dayKey || ''}|${String(c.minutes ?? '')}`;
+  };
+  [...a, ...b].forEach((c) => {
+    const k = keyOf(c);
+    if (!k) return;
+    if (!map.has(k)) map.set(k, c);
+  });
+  return [...map.values()].sort((x, y) => String(x.date || '').localeCompare(String(y.date || '')));
+}
+
 // ─── DAY CONFIG ─────────────────────────────────────────────
 /** Orden calendario (lun → dom). Podés entrenar cualquier subconjunto; el usuario elige en Rutina. */
 const DAY_CONFIG = [
@@ -1124,7 +1159,7 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
 
 // ─── VISTA HISTORIAL ────────────────────────────────────────
 
-function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDayChange }) {
+function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDayChange, onRecoverLocal }) {
   const dayConfig = DAY_MAP[activeDay];
 
   // Get all logs for this day, sorted newest first
@@ -1172,6 +1207,18 @@ function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDa
             <p className="text-4xl mb-2">🏋️</p>
             <p className="text-sm">No hay sesiones para este día</p>
             <p className="text-xs mt-1">Iniciá un workout y van a aparecer acá</p>
+            {typeof onRecoverLocal === 'function' && (
+              <div className="mt-6 px-2">
+                <p className="text-[11px] text-white/35 mb-2">¿Entrenaste antes solo en este celular y no ves nada?</p>
+                <button
+                  type="button"
+                  onClick={() => onRecoverLocal()}
+                  className="text-xs text-orange-300/90 underline underline-offset-2 hover:text-orange-200"
+                >
+                  Intentar recuperar datos guardados en este dispositivo
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           dayLogs.map((session, si) => {
@@ -1235,6 +1282,23 @@ function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDa
             className="w-full py-2.5 rounded-xl bg-white/5 text-xs text-white/40 hover:bg-white/10 transition-colors">
             📋 Copiar historial
           </button>
+        )}
+
+        {typeof onRecoverLocal === 'function' && (
+          <div className={`rounded-2xl p-4 border ${logs.length === 0 ? 'glass border-white/10' : 'border-transparent bg-white/[0.03]'}`}>
+            <p className="text-[11px] text-white/40 mb-2">
+              {logs.length === 0
+                ? 'Si entrenaste solo en este celular y el historial no aparece, fusioná lo guardado acá con tu cuenta.'
+                : '¿Faltan sesiones viejas? Si quedó copia en este navegador, fusionala con la nube.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => onRecoverLocal()}
+              className="w-full py-2.5 rounded-xl bg-orange-500/15 text-xs text-orange-200 hover:bg-orange-500/25"
+            >
+              Recuperar / fusionar historial local
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -2163,11 +2227,37 @@ function App() {
         setRoutines(mergeRoutinesFromFirestore(d.routines));
         setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
         setDayPreferences(mergeDayPreferences(d.dayPreferences));
-        setCardioLogs(Array.isArray(d.cardioLogs) ? d.cardioLogs : []);
-        setLogs(Array.isArray(d.workoutLogs) ? d.workoutLogs : []);
+
+        let workoutLogs = Array.isArray(d.workoutLogs) ? d.workoutLogs : [];
+        let cardioLogs = Array.isArray(d.cardioLogs) ? d.cardioLogs : [];
+
+        const local = readLocalMigrationBundle();
+        // Antes se borraba local sin subir: si había historial solo en el celular y la nube ya tenía doc, se perdía.
+        if (local.hasAny) {
+          const mergedW = mergeWorkoutLogs(workoutLogs, local.workoutLogs);
+          const mergedC = mergeCardioLogs(cardioLogs, local.cardioLogs);
+          if (mergedW.length !== workoutLogs.length || mergedC.length !== cardioLogs.length) {
+            try {
+              await ref.set(
+                {
+                  workoutLogs: mergedW,
+                  cardioLogs: mergedC,
+                  updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                },
+                { merge: true }
+              );
+            } catch (e) {
+              console.error('merge local → Firestore', e);
+            }
+            workoutLogs = mergedW;
+            cardioLogs = mergedC;
+          }
+          clearLocalGymKeys();
+        }
+
+        setLogs(workoutLogs);
+        setCardioLogs(cardioLogs);
         setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
-        // Evita que queden datos viejos de localStorage en este navegador.
-        if (readLocalMigrationBundle().hasAny) clearLocalGymKeys();
         setLoading(false);
       },
       (err) => {
@@ -2273,6 +2363,33 @@ function App() {
       return updated;
     });
   }, [persistPartial]);
+
+  /** Si todavía quedó gym-logs / gym-cardio-logs en este navegador, los fusiona con la nube. */
+  const recoverFromLocalStorage = useCallback(async () => {
+    const local = readLocalMigrationBundle();
+    const hasLogs = Array.isArray(local.workoutLogs) && local.workoutLogs.length > 0;
+    const hasCardio = Array.isArray(local.cardioLogs) && local.cardioLogs.length > 0;
+    if (!hasLogs && !hasCardio) {
+      window.alert(
+        'No hay historial en el almacenamiento local de este navegador (clave gym-logs).\n\n' +
+          'Si ya entraste acá con tu cuenta, puede haberse fusionado o borrado.\n' +
+          'Probá en el mismo celular/navegador donde cargaste los datos, o revisá en Firebase si workoutLogs tiene datos.'
+      );
+      return;
+    }
+    const mergedW = mergeWorkoutLogs(logs, local.workoutLogs);
+    const mergedC = mergeCardioLogs(cardioLogs, local.cardioLogs);
+    if (mergedW.length === logs.length && mergedC.length === cardioLogs.length) {
+      window.alert('Esas sesiones ya están en la nube. Se limpió el almacenamiento local duplicado.');
+      clearLocalGymKeys();
+      return;
+    }
+    setLogs(mergedW);
+    setCardioLogs(mergedC);
+    await persistPartial({ workoutLogs: mergedW, cardioLogs: mergedC });
+    clearLocalGymKeys();
+    window.alert('Listo: el historial local se unió con tu cuenta en la nube.');
+  }, [logs, cardioLogs, persistPartial]);
 
   const applyPreset = useCallback(async (presetType) => {
     const labels = { hipertrofia: 'Hipertrofia', fuerza: 'Fuerza', definicion: 'Definición' };
@@ -2393,7 +2510,7 @@ function App() {
           <DashboardView logs={logs} cardioLogs={cardioLogs} onNavigateTab={setActiveTab} />
         )}
         {activeTab === 'historial' && (
-          <HistorialView logs={logs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} activeDay={activeDay} onDayChange={setActiveDay} />
+          <HistorialView logs={logs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} activeDay={activeDay} onDayChange={setActiveDay} onRecoverLocal={recoverFromLocalStorage} />
         )}
         {activeTab === 'rutina' && (
           <RutinaView routines={routines} cardioSettings={cardioSettings} dayPreferences={dayPreferences}

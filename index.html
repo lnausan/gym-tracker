@@ -8,6 +8,21 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
+  <!-- Primera pintada rápida: el JS pesado (Babel + app.jsx) tarda; esto se ve al instante -->
+  <link rel="preload" href="https://unpkg.com/react@18/umd/react.production.min.js" as="script" crossorigin>
+  <link rel="preload" href="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" as="script" crossorigin>
+  <style>
+    #boot-splash {
+      position: fixed; inset: 0; z-index: 99999;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: #0a0a0f; color: rgba(255,255,255,0.85);
+      font-family: system-ui, sans-serif;
+    }
+    #boot-splash .t { font-size: 1.75rem; font-weight: 700; letter-spacing: 0.15em; animation: bootPulse 1.2s ease-in-out infinite; }
+    #boot-splash .s { margin-top: 0.75rem; font-size: 0.8rem; color: rgba(255,255,255,0.35); }
+    @keyframes bootPulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+  </style>
+
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -154,11 +169,16 @@
   <!-- React 18 -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <!-- Babel for JSX -->
+  <!-- Babel compila app.jsx en el navegador en cada visita → principal causa de lentitud (ver PERFORMANCE.md) -->
   <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <div id="boot-splash" aria-live="polite">
+      <span class="t">GYM TRACKER</span>
+      <span class="s">Cargando app…</span>
+    </div>
+  </div>
   <script type="text/babel" data-type="module" src="app.jsx"></script>
 </body>
 </html>
