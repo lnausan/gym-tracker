@@ -1342,6 +1342,11 @@ function RutinaExerciseEditor({ exercise, index, total, dayColor, onSave, onDele
   const [form, setForm] = useState(exercise);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Si la rutina llega actualizada desde la nube (otro dispositivo), mantener el form en sync cuando no editás.
+  useEffect(() => {
+    if (!editing) setForm(exercise);
+  }, [exercise, editing]);
+
   const handleSave = () => {
     onSave(form);
     setEditing(false);
@@ -2232,6 +2237,7 @@ function App() {
     let creatingDoc = false;
 
     const unsub = ref.onSnapshot(
+      { includeMetadataChanges: true },
       async (snap) => {
         if (!snap.exists) {
           if (creatingDoc) return;
@@ -2263,7 +2269,11 @@ function App() {
         const tw = mergeTrainingWeekDays(d.trainingWeekDays);
         const serverTs = effectiveServerWriteTs(d);
         const localTs = lastLocalWriteTsRef.current;
-        const applySettings = serverTs >= localTs;
+        // Si no hay escrituras locales pendientes en este snapshot, el doc ya está alineado con el servidor
+        // (incluye cambios de OTRO dispositivo). Antes solo comparábamos timestamps y con relojes distintos
+        // o updatedAt vs clientWriteTs podía fallar serverTs >= localTs y NUNCA aplicar rutinas/OPC remotas.
+        const pendingLocal = snap.metadata.hasPendingWrites === true;
+        const applySettings = !pendingLocal || serverTs >= localTs;
 
         if (applySettings) {
           setTrainingWeekDays(tw);
