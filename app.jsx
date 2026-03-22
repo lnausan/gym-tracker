@@ -2466,7 +2466,19 @@ function App() {
         },
         { merge: true }
       );
-      // Solo después de éxito: el servidor tiene (al menos) este clientWriteTs.
+      // Con persistencia offline, `set` puede resolver cuando la cola local aceptó el write, NO cuando
+      // el servidor ya lo tiene — por eso otro dispositivo no veía cambios. Esperamos confirmación en servidor.
+      const db = getDb();
+      try {
+        await withTimeout(db.waitForPendingWrites(), 20000, 'waitForPendingWrites');
+      } catch (w) {
+        if (w?.code === 'deadline-exceeded') {
+          console.warn('persistPartial: escritura aún en cola o sin red; otro dispositivo puede demorar.');
+        } else if (!isBenignFirestoreSessionRaceError(w)) {
+          console.warn('waitForPendingWrites tras guardar', w);
+        }
+      }
+      // Solo después de éxito + cola vacía hacia servidor: el servidor tiene (al menos) este clientWriteTs.
       lastLocalWriteTsRef.current = ts;
     } catch (e) {
       console.error('persistPartial', e);
