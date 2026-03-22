@@ -603,20 +603,34 @@ function BottomTabBar({ active, onChange }) {
 }
 
 // -- Day Selector --
-function DaySelector({ active, onChange, logs, dayPreferences, trainingWeekDays, showAllDays }) {
+function DaySelector({ active, onChange, logs, cardioLogs, dayPreferences, trainingWeekDays, showAllDays }) {
   const sessionDays = useMemo(() => {
-    if (!logs) return {};
     const map = {};
-    logs.forEach(l => { map[l.dayKey] = true; });
+    logs?.forEach((l) => {
+      if (l?.dayKey) map[l.dayKey] = true;
+    });
     return map;
   }, [logs]);
 
   const schedule = useMemo(() => mergeTrainingWeekDays(trainingWeekDays), [trainingWeekDays]);
 
+  /** Días con datos guardados (pesas y/o cardio): no ocultar aunque los hayas quitado de “Mis días”. */
+  const logDayKeys = useMemo(() => {
+    const s = new Set();
+    logs?.forEach((l) => {
+      if (l?.dayKey) s.add(l.dayKey);
+    });
+    cardioLogs?.forEach((c) => {
+      if (c?.dayKey) s.add(c.dayKey);
+    });
+    return sortWeekDayKeys([...s]);
+  }, [logs, cardioLogs]);
+
   const daysToShow = useMemo(() => {
     if (showAllDays) return DAY_CONFIG;
-    return schedule.map((key) => DAY_MAP[key]).filter(Boolean);
-  }, [showAllDays, schedule]);
+    const unionKeys = sortWeekDayKeys([...new Set([...schedule, ...logDayKeys])]);
+    return unionKeys.map((key) => DAY_MAP[key]).filter(Boolean);
+  }, [showAllDays, schedule, logDayKeys]);
 
   return (
     <div className="flex gap-2 justify-center px-2 py-3 overflow-x-auto scroll-hide">
@@ -1690,7 +1704,7 @@ function CardioView({ cardioSettings, cardioLogs, dayPreferences, trainingWeekDa
 
   return (
     <div className="pb-20">
-      <DaySelector active={activeDay} onChange={onDayChange} logs={null} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} showAllDays={false} />
+      <DaySelector active={activeDay} onChange={onDayChange} logs={null} cardioLogs={cardioLogs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} showAllDays={false} />
 
       <div className="text-center py-2">
         <h1 className="font-heading text-3xl tracking-wider" style={{ color: dayConfig.color }}>
@@ -1786,7 +1800,7 @@ function CardioView({ cardioSettings, cardioLogs, dayPreferences, trainingWeekDa
 
 // ─── DASHBOARD (producto) ───────────────────────────────────
 
-function DashboardView({ logs, cardioLogs }) {
+function DashboardView({ logs, cardioLogs, onNavigateTab }) {
   const [weekId, setWeekId] = useState(() => getWeekId(new Date()));
   const weekLogs = useMemo(() => filterLogsByWeek(logs, weekId), [logs, weekId]);
   const prevWeekId = useMemo(() => shiftWeek(weekId, -1), [weekId]);
@@ -1821,14 +1835,39 @@ function DashboardView({ logs, cardioLogs }) {
   };
 
   return (
-    <div className="pb-24 px-4">
-      <div className="flex items-center justify-between py-3">
-        <button type="button" onClick={() => setWeekId(shiftWeek(weekId, -1))} className="px-3 py-2 rounded-xl bg-white/10 text-sm">←</button>
+    <div className="pb-28 px-4 relative z-10">
+      {typeof onNavigateTab === 'function' && (
+        <div className="glass rounded-2xl p-4 mb-3 border border-white/10">
+          <p className="text-[11px] text-white/50 leading-relaxed">
+            <span className="text-white/80 font-medium">Panel</span>: resumen y exportación. Para cargar series y pesas usá{' '}
+            <span className="text-white">Entrenar</span>; para ver sesiones pasadas, <span className="text-white">Historial</span>.
+          </p>
+          <div className="flex gap-2 mt-3">
+            <button
+              type="button"
+              onClick={() => onNavigateTab('entrenar')}
+              className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-orange-500/25 text-sm font-medium text-orange-200 active:scale-[0.98]"
+            >
+              💪 Ir a Entrenar
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('historial')}
+              className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-white/10 text-sm font-medium text-white/90 active:scale-[0.98]"
+            >
+              📊 Historial
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between py-3 relative z-10">
+        <button type="button" onClick={() => setWeekId(shiftWeek(weekId, -1))} className="min-w-[44px] min-h-[44px] px-3 py-2 rounded-xl bg-white/10 text-sm touch-manipulation">←</button>
         <div className="text-center">
           <p className="font-heading text-2xl tracking-wider text-white">📈 {weekId}</p>
           <p className="text-[11px] text-white/35">{getWeekDates(weekId)}</p>
         </div>
-        <button type="button" onClick={() => setWeekId(shiftWeek(weekId, 1))} className="px-3 py-2 rounded-xl bg-white/10 text-sm">→</button>
+        <button type="button" onClick={() => setWeekId(shiftWeek(weekId, 1))} className="min-w-[44px] min-h-[44px] px-3 py-2 rounded-xl bg-white/10 text-sm touch-manipulation">→</button>
       </div>
 
       <div className="grid grid-cols-2 gap-2 mb-3">
@@ -1877,14 +1916,14 @@ function DashboardView({ logs, cardioLogs }) {
         <button
           type="button"
           onClick={() => downloadTextFile(`gym-resumen-${weekId}.txt`, buildWeeklyExportText(weekId, logs, cardioLogs))}
-          className="w-full py-3 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/15"
+          className="w-full min-h-[44px] py-3 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/15 touch-manipulation"
         >
           📄 Descargar resumen (TXT)
         </button>
         <button
           type="button"
           onClick={() => printWeeklySummary(weekId, logs, cardioLogs)}
-          className="w-full py-3 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/15"
+          className="w-full min-h-[44px] py-3 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/15 touch-manipulation"
         >
           🖨️ Imprimir / guardar como PDF
         </button>
@@ -2351,7 +2390,7 @@ function App() {
           />
         )}
         {activeTab === 'dashboard' && (
-          <DashboardView logs={logs} cardioLogs={cardioLogs} />
+          <DashboardView logs={logs} cardioLogs={cardioLogs} onNavigateTab={setActiveTab} />
         )}
         {activeTab === 'historial' && (
           <HistorialView logs={logs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} activeDay={activeDay} onDayChange={setActiveDay} />

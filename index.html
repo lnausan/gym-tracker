@@ -129,6 +129,8 @@
     .safe-bottom {
       padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px);
     }
+    /* Menos delay en toques (móvil) */
+    .touch-manipulation { touch-action: manipulation; }
   </style>
 
   <!-- Firebase (Auth + Firestore) - compat build -->
