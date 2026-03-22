@@ -51,6 +51,38 @@ function withTimeout(promise, ms, label = 'operation') {
   ]);
 }
 
+/** Lectura que prefiere el servidor (evita caché vieja al abrir otro navegador). */
+async function fetchUserDocPreferServer(ref) {
+  try {
+    return await ref.get({ source: 'server' });
+  } catch (err) {
+    const m = String(err?.message || '');
+    if (/Failed to get document|local cache|unavailable|network/i.test(m)) {
+      return await ref.get();
+    }
+    throw err;
+  }
+}
+
+/** Compat: algunas versiones exponen fromCache, otras isFromCache. */
+function snapshotIsFromLocalCache(snap) {
+  const m = snap.metadata;
+  if (!m) return false;
+  if (m.fromCache === true) return true;
+  if (m.isFromCache === true) return true;
+  return false;
+}
+
+/**
+ * ¿Aplicar rutinas/preferencias desde este snapshot?
+ * - No es solo caché local → viene del servidor (push remoto u otro dispositivo): SIEMPRE aplicar.
+ * - Solo caché local → solo si serverTs >= localTs (no pisar tras un get() reciente del servidor).
+ */
+function shouldApplyFirestoreSettingsSnapshot(snap, serverTs, localTs) {
+  if (!snapshotIsFromLocalCache(snap)) return true;
+  return serverTs >= localTs;
+}
+
 // ─── FIREBASE AUTH ──────────────────────────────────────────
 function getFirebaseConfig() {
   const cfg = (window.FIREBASE_CONFIG || {});
@@ -2197,6 +2229,19 @@ function App() {
   /** Evita que onSnapshot pise rutinas/preferencias con un snapshot viejo antes de que el write llegue al servidor. */
   const lastLocalWriteTsRef = useRef(0);
 
+  /** Alinea todo el estado con un documento leído del servidor (mismo criterio que ↻ Sync). */
+  const applyFullDocFromServerData = useCallback((d) => {
+    const tw = mergeTrainingWeekDays(d.trainingWeekDays);
+    lastLocalWriteTsRef.current = effectiveServerWriteTs(d);
+    setTrainingWeekDays(tw);
+    setRoutines(mergeRoutinesFromFirestore(d.routines));
+    setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
+    setDayPreferences(mergeDayPreferences(d.dayPreferences));
+    setLogs(Array.isArray(d.workoutLogs) ? d.workoutLogs : []);
+    setCardioLogs(Array.isArray(d.cardioLogs) ? d.cardioLogs : []);
+    setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
+  }, []);
+
   // Check auth session on mount
   useEffect(() => {
     let unsubscribe = null;
@@ -2269,11 +2314,9 @@ function App() {
         const tw = mergeTrainingWeekDays(d.trainingWeekDays);
         const serverTs = effectiveServerWriteTs(d);
         const localTs = lastLocalWriteTsRef.current;
-        // Si no hay escrituras locales pendientes en este snapshot, el doc ya está alineado con el servidor
-        // (incluye cambios de OTRO dispositivo). Antes solo comparábamos timestamps y con relojes distintos
-        // o updatedAt vs clientWriteTs podía fallar serverTs >= localTs y NUNCA aplicar rutinas/OPC remotas.
-        const pendingLocal = snap.metadata.hasPendingWrites === true;
-        const applySettings = !pendingLocal || serverTs >= localTs;
+        // fromCache === false → snapshot del servidor (incluye otro navegador): siempre aplicar.
+        // Solo caché: comparar timestamps para no pisar un get() reciente ni una edición optimista.
+        const applySettings = shouldApplyFirestoreSettingsSnapshot(snap, serverTs, localTs);
 
         if (applySettings) {
           setTrainingWeekDays(tw);
@@ -2331,6 +2374,51 @@ function App() {
 
     return () => unsub();
   }, [user]);
+
+  // Al iniciar sesión: forzar lectura desde el servidor (el listener puede servir primero caché vieja).
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    const ref = getDb().collection(USER_DATA_COLLECTION).doc(user.uid);
+    void (async () => {
+      try {
+        const snap = await fetchUserDocPreferServer(ref);
+        if (cancelled || !snap.exists) return;
+        applyFullDocFromServerData(snap.data());
+      } catch (e) {
+        console.error('bootstrap servidor userData', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user, applyFullDocFromServerData]);
+
+  // Al volver a la pestaña / foco: refrescar desde servidor (otro navegador pudo haber guardado).
+  useEffect(() => {
+    if (!user?.uid) return;
+    let debounceId;
+    const run = () => {
+      if (document.visibilityState && document.visibilityState !== 'visible') return;
+      clearTimeout(debounceId);
+      debounceId = setTimeout(() => {
+        const ref = getDb().collection(USER_DATA_COLLECTION).doc(user.uid);
+        void fetchUserDocPreferServer(ref)
+          .then((snap) => {
+            if (!snap.exists) return;
+            applyFullDocFromServerData(snap.data());
+          })
+          .catch((e) => console.error('refresh servidor userData', e));
+      }, 350);
+    };
+    document.addEventListener('visibilitychange', run);
+    window.addEventListener('pageshow', run);
+    window.addEventListener('focus', run);
+    return () => {
+      clearTimeout(debounceId);
+      document.removeEventListener('visibilitychange', run);
+      window.removeEventListener('pageshow', run);
+      window.removeEventListener('focus', run);
+    };
+  }, [user, applyFullDocFromServerData]);
 
   useEffect(() => {
     if (trainingWeekDays === null) return;
@@ -2478,33 +2566,12 @@ function App() {
           console.warn('waitForPendingWrites', w);
         }
       }
-      // Forzar servidor falla sin red aunque haya caché; en ese caso usar lectura normal (caché + red si puede).
-      let snap;
-      try {
-        snap = await ref.get({ source: 'server' });
-      } catch (err) {
-        const m = String(err?.message || '');
-        if (/Failed to get document|local cache|unavailable|network/i.test(m)) {
-          snap = await ref.get();
-        } else {
-          throw err;
-        }
-      }
+      const snap = await fetchUserDocPreferServer(ref);
       if (!snap.exists) {
         window.alert('No hay datos en la nube para esta cuenta.');
         return;
       }
-      const d = snap.data();
-      // Alinear ref con el documento leído del servidor (misma lógica que onSnapshot).
-      lastLocalWriteTsRef.current = effectiveServerWriteTs(d);
-      const tw = mergeTrainingWeekDays(d.trainingWeekDays);
-      setTrainingWeekDays(tw);
-      setRoutines(mergeRoutinesFromFirestore(d.routines));
-      setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
-      setDayPreferences(mergeDayPreferences(d.dayPreferences));
-      setLogs(Array.isArray(d.workoutLogs) ? d.workoutLogs : []);
-      setCardioLogs(Array.isArray(d.cardioLogs) ? d.cardioLogs : []);
-      setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
+      applyFullDocFromServerData(snap.data());
     } catch (e) {
       const msg = firestoreErrorText(e);
       console.error('sync', e, msg);
@@ -2514,7 +2581,7 @@ function App() {
     } finally {
       setSyncing(false);
     }
-  }, [user]);
+  }, [user, applyFullDocFromServerData]);
 
   const handleLogout = async () => {
     // No usar waitForPendingWrites aquí: al cerrar sesión Firestore lo rechaza (“user change”) y rompe la UX.
