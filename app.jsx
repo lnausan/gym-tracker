@@ -2242,6 +2242,22 @@ function App() {
     setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
   }, []);
 
+  /**
+   * Evita que bootstrap/foco apliquen un GET viejo JUSTO antes de que confirme tu último guardado:
+   * eso revertía la UI y parecía que los cambios solo vivían en local / no llegaban al otro dispositivo.
+   */
+  const applyFullDocFromServerDataIfNotStale = useCallback(
+    (d) => {
+      const serverTs = effectiveServerWriteTs(d);
+      if (serverTs < lastLocalWriteTsRef.current) {
+        return false;
+      }
+      applyFullDocFromServerData(d);
+      return true;
+    },
+    [applyFullDocFromServerData]
+  );
+
   // Check auth session on mount
   useEffect(() => {
     let unsubscribe = null;
@@ -2384,15 +2400,15 @@ function App() {
       try {
         const snap = await fetchUserDocPreferServer(ref);
         if (cancelled || !snap.exists) return;
-        applyFullDocFromServerData(snap.data());
+        applyFullDocFromServerDataIfNotStale(snap.data());
       } catch (e) {
         console.error('bootstrap servidor userData', e);
       }
     })();
     return () => { cancelled = true; };
-  }, [user, applyFullDocFromServerData]);
+  }, [user, applyFullDocFromServerDataIfNotStale]);
 
-  // Al volver a la pestaña / foco: refrescar desde servidor (otro navegador pudo haber guardado).
+  // Al volver a la pestaña: refrescar desde servidor (sin window.focus: en mobile dispara mucho y competía con el guardado).
   useEffect(() => {
     if (!user?.uid) return;
     let debounceId;
@@ -2404,21 +2420,19 @@ function App() {
         void fetchUserDocPreferServer(ref)
           .then((snap) => {
             if (!snap.exists) return;
-            applyFullDocFromServerData(snap.data());
+            applyFullDocFromServerDataIfNotStale(snap.data());
           })
           .catch((e) => console.error('refresh servidor userData', e));
-      }, 350);
+      }, 800);
     };
     document.addEventListener('visibilitychange', run);
     window.addEventListener('pageshow', run);
-    window.addEventListener('focus', run);
     return () => {
       clearTimeout(debounceId);
       document.removeEventListener('visibilitychange', run);
       window.removeEventListener('pageshow', run);
-      window.removeEventListener('focus', run);
     };
-  }, [user, applyFullDocFromServerData]);
+  }, [user, applyFullDocFromServerDataIfNotStale]);
 
   useEffect(() => {
     if (trainingWeekDays === null) return;
