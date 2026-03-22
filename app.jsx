@@ -26,33 +26,46 @@ function getAuth() {
   return firebase.auth();
 }
 
-// ─── STORAGE LAYER ──────────────────────────────────────────
-const storage = {
-  async get(key) {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? { value: raw } : null;
-    } catch (e) { console.error('storage.get', e); return null; }
-  },
-  async set(key, value) {
-    try { localStorage.setItem(key, value); }
-    catch (e) { console.error('storage.set', e); }
-  },
-  async delete(key) {
-    try { localStorage.removeItem(key); }
-    catch (e) { console.error('storage.delete', e); }
-  },
-  async list(prefix) {
-    try {
-      const keys = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k.startsWith(prefix)) keys.push(k);
-      }
-      return keys;
-    } catch (e) { console.error('storage.list', e); return []; }
+// ─── FIRESTORE: esquema y helpers ───────────────────────────
+// Documento: userData/{uid}
+// Campos: schemaVersion, routines, cardioSettings, workoutLogs, cardioLogs, updatedAt
+// Ver FIRESTORE.md
+const DATA_SCHEMA_VERSION = 1;
+const USER_DATA_COLLECTION = 'userData';
+
+function getDb() {
+  ensureFirebaseInitialized();
+  return firebase.firestore();
+}
+
+const LOCAL_GYM_KEYS = ['gym-routines', 'gym-cardio', 'gym-cardio-logs', 'gym-logs'];
+
+/** Lee datos viejos de localStorage (solo migración one-shot a la nube). */
+function readLocalMigrationBundle() {
+  try {
+    const routines = localStorage.getItem('gym-routines');
+    const cardio = localStorage.getItem('gym-cardio');
+    const cardioLogs = localStorage.getItem('gym-cardio-logs');
+    const logs = localStorage.getItem('gym-logs');
+    const hasAny = !!(routines || cardio || cardioLogs || logs);
+    return {
+      hasAny,
+      routines: routines ? JSON.parse(routines) : null,
+      cardioSettings: cardio ? JSON.parse(cardio) : null,
+      cardioLogs: cardioLogs ? JSON.parse(cardioLogs) : null,
+      workoutLogs: logs ? JSON.parse(logs) : null,
+    };
+  } catch (e) {
+    console.error('readLocalMigrationBundle', e);
+    return { hasAny: false, routines: null, cardioSettings: null, cardioLogs: null, workoutLogs: null };
   }
-};
+}
+
+function clearLocalGymKeys() {
+  LOCAL_GYM_KEYS.forEach((k) => {
+    try { localStorage.removeItem(k); } catch (e) { /* ignore */ }
+  });
+}
 
 // ─── DAY CONFIG ─────────────────────────────────────────────
 const DAY_CONFIG = [
@@ -1564,58 +1577,114 @@ function App() {
     return () => { if (unsubscribe) unsubscribe(); };
   }, []);
 
-  // Load data once authenticated
+  // Carga y sync en tiempo real desde Firestore (userData/{uid})
   useEffect(() => {
-    if (!user) { setLoading(false); return; }
-    (async () => {
-      try {
-        const routinesData = await storage.get('gym-routines');
-        const cardioData = await storage.get('gym-cardio');
-        const cardioLogsData = await storage.get('gym-cardio-logs');
-        const logsData = await storage.get('gym-logs');
-        setRoutines(routinesData ? JSON.parse(routinesData.value) : DEFAULT_ROUTINES);
-        setCardioSettings(cardioData ? JSON.parse(cardioData.value) : DEFAULT_CARDIO_SETTINGS);
-        setCardioLogs(cardioLogsData ? JSON.parse(cardioLogsData.value) : []);
-        setLogs(logsData ? JSON.parse(logsData.value) : []);
-      } catch (e) {
-        console.error('Error loading data:', e);
+    if (!user) {
+      setRoutines(null);
+      setCardioSettings(null);
+      setCardioLogs([]);
+      setLogs([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const db = getDb();
+    const ref = db.collection(USER_DATA_COLLECTION).doc(user.uid);
+    let creatingDoc = false;
+
+    const unsub = ref.onSnapshot(
+      async (snap) => {
+        if (!snap.exists) {
+          if (creatingDoc) return;
+          creatingDoc = true;
+          try {
+            const local = readLocalMigrationBundle();
+            const payload = {
+              schemaVersion: DATA_SCHEMA_VERSION,
+              routines: local.routines != null ? local.routines : DEFAULT_ROUTINES,
+              cardioSettings: local.cardioSettings != null ? local.cardioSettings : DEFAULT_CARDIO_SETTINGS,
+              workoutLogs: Array.isArray(local.workoutLogs) ? local.workoutLogs : [],
+              cardioLogs: Array.isArray(local.cardioLogs) ? local.cardioLogs : [],
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            };
+            await ref.set(payload);
+            if (local.hasAny) clearLocalGymKeys();
+          } catch (e) {
+            console.error('Firestore init doc:', e);
+            creatingDoc = false;
+            setLoading(false);
+          }
+          return;
+        }
+
+        creatingDoc = false;
+        const d = snap.data();
+        setRoutines(d.routines != null ? d.routines : DEFAULT_ROUTINES);
+        setCardioSettings(d.cardioSettings != null ? d.cardioSettings : DEFAULT_CARDIO_SETTINGS);
+        setCardioLogs(Array.isArray(d.cardioLogs) ? d.cardioLogs : []);
+        setLogs(Array.isArray(d.workoutLogs) ? d.workoutLogs : []);
+        // Evita que queden datos viejos de localStorage en este navegador.
+        if (readLocalMigrationBundle().hasAny) clearLocalGymKeys();
+        setLoading(false);
+      },
+      (err) => {
+        console.error('Firestore snapshot:', err);
         setRoutines(DEFAULT_ROUTINES);
         setCardioSettings(DEFAULT_CARDIO_SETTINGS);
         setCardioLogs([]);
         setLogs([]);
+        setLoading(false);
       }
-      setLoading(false);
-    })();
+    );
+
+    return () => unsub();
+  }, [user]);
+
+  const persistPartial = useCallback(async (partial) => {
+    if (!user?.uid) return;
+    try {
+      await getDb().collection(USER_DATA_COLLECTION).doc(user.uid).set(
+        {
+          ...partial,
+          schemaVersion: DATA_SCHEMA_VERSION,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.error('persistPartial', e);
+    }
   }, [user]);
 
   // Save routines
   const updateRoutines = useCallback(async (newRoutines) => {
     setRoutines(newRoutines);
-    await storage.set('gym-routines', JSON.stringify(newRoutines));
-  }, []);
+    await persistPartial({ routines: newRoutines });
+  }, [persistPartial]);
 
   // Save cardio settings per day
   const updateCardioSettings = useCallback(async (newCardioSettings) => {
     setCardioSettings(newCardioSettings);
-    await storage.set('gym-cardio', JSON.stringify(newCardioSettings));
-  }, []);
+    await persistPartial({ cardioSettings: newCardioSettings });
+  }, [persistPartial]);
 
   const saveCardioLog = useCallback(async (entry) => {
-    setCardioLogs(prev => {
+    setCardioLogs((prev) => {
       const updated = [...prev, entry];
-      storage.set('gym-cardio-logs', JSON.stringify(updated));
+      persistPartial({ cardioLogs: updated });
       return updated;
     });
-  }, []);
+  }, [persistPartial]);
 
   // Save log
   const saveLog = useCallback(async (session) => {
-    setLogs(prev => {
+    setLogs((prev) => {
       const updated = [...prev, session];
-      storage.set('gym-logs', JSON.stringify(updated));
+      persistPartial({ workoutLogs: updated });
       return updated;
     });
-  }, []);
+  }, [persistPartial]);
 
   // Total sessions count
   const totalSessions = logs.length;
