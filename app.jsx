@@ -92,14 +92,11 @@ function snapshotIsFromLocalCache(snap) {
 
 /**
  * ¿Aplicar rutinas/preferencias desde este snapshot?
- * Siempre comparar timestamps, sin importar si el snapshot es de caché o del servidor.
- * Un snapshot del servidor puede ser más viejo que nuestro último write (p.ej. un push
- * demorado de otro dispositivo o el eco de nuestra propia escritura anterior); aplicarlo
- * sin verificar sobreescribe ediciones más recientes que aún no fueron confirmadas.
- * Para sync cross-dispositivo esto sigue funcionando: si el otro equipo escribió más tarde
- * su serverTs es mayor y el snapshot se aplica normalmente.
+ * - No es solo caché local → viene del servidor (push remoto u otro dispositivo): SIEMPRE aplicar.
+ * - Solo caché local → solo si serverTs >= localTs (no pisar tras un get() reciente del servidor).
  */
-function shouldApplyFirestoreSettingsSnapshot(serverTs, localTs) {
+function shouldApplyFirestoreSettingsSnapshot(snap, serverTs, localTs) {
+  if (!snapshotIsFromLocalCache(snap)) return true;
   return serverTs >= localTs;
 }
 
@@ -2369,8 +2366,9 @@ function App() {
         const tw = mergeTrainingWeekDays(d.trainingWeekDays);
         const serverTs = effectiveServerWriteTs(d);
         const localTs = Math.max(lastLocalWriteTsRef.current, pendingOptimisticWriteTsRef.current);
-        // Aplicar solo si el snapshot no es más viejo que nuestro último write.
-        const applySettings = shouldApplyFirestoreSettingsSnapshot(serverTs, localTs);
+        // fromCache === false → snapshot del servidor (push remoto u otro dispositivo): siempre aplicar.
+        // Solo caché: comparar timestamps para no pisar un get() reciente del servidor.
+        const applySettings = shouldApplyFirestoreSettingsSnapshot(snap, serverTs, localTs);
 
         if (applySettings) {
           setTrainingWeekDays(tw);
