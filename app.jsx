@@ -2332,13 +2332,16 @@ function App() {
     const unsub = ref.onSnapshot(
       { includeMetadataChanges: true },
       async (snap) => {
+        const fromCache = snapshotIsFromLocalCache(snap);
+        console.log('[GymTracker] onSnapshot', { exists: snap.exists, fromCache, uid: user.uid });
         if (!snap.exists) {
           // Si es un cache-miss (doc no cacheado localmente), esperar el snapshot del servidor
           // antes de crear nada: el documento puede existir en Firestore (ej. datos guardados
           // desde el celular). Crear el doc aquí sobreescribiría esos datos con defaults.
-          if (snapshotIsFromLocalCache(snap)) return;
+          if (fromCache) { console.log('[GymTracker] cache-miss → esperando servidor'); return; }
           if (creatingDoc) return;
           creatingDoc = true;
+          console.log('[GymTracker] doc no existe en servidor → creando');
           try {
             const local = readLocalMigrationBundle();
             const payload = {
@@ -2369,6 +2372,14 @@ function App() {
         // fromCache === false → snapshot del servidor (push remoto u otro dispositivo): siempre aplicar.
         // Solo caché: comparar timestamps para no pisar un get() reciente del servidor.
         const applySettings = shouldApplyFirestoreSettingsSnapshot(snap, serverTs, localTs);
+        console.log('[GymTracker] snap data', {
+          fromCache,
+          applySettings,
+          serverTs,
+          localTs,
+          workoutLogsCount: Array.isArray(d.workoutLogs) ? d.workoutLogs.length : 0,
+          routineDays: d.routines ? Object.keys(d.routines) : [],
+        });
 
         if (applySettings) {
           setTrainingWeekDays(tw);
@@ -2443,16 +2454,18 @@ function App() {
     void (async () => {
       try {
         const snap = await fetchUserDocPreferServer(ref);
-        if (cancelled || !snap.exists) return;
+        if (cancelled) return;
+        console.log('[GymTracker] bootstrap servidor', { exists: snap.exists, uid: user.uid, workoutLogsCount: snap.exists ? (snap.data()?.workoutLogs?.length ?? 0) : 'N/A' });
+        if (!snap.exists) return;
         // Al login no hay writes en vuelo; aplicar siempre los datos del servidor
         // sin comparar timestamps (que podrían estar inflados por un snapshot de caché anterior).
         applyFullDocFromServerData(snap.data());
       } catch (e) {
-        console.error('bootstrap servidor userData', e);
+        console.error('[GymTracker] bootstrap servidor userData', e);
       }
     })();
     return () => { cancelled = true; };
-  }, [user, applyFullDocFromServerDataIfNotStale]);
+  }, [user, applyFullDocFromServerData]);
 
   // Al volver a la pestaña: refrescar desde servidor (sin window.focus: en mobile dispara mucho y competía con el guardado).
   useEffect(() => {
