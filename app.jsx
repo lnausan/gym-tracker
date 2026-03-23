@@ -115,9 +115,14 @@ function ensureFirebaseInitialized() {
     }
     firebase.initializeApp(cfg);
   }
-  // enablePersistence eliminado: el caché IndexedDB con synchronizeTabs bloqueaba la
-  // conexión real al servidor (el snapshot del servidor nunca llegaba, solo el de caché).
-  // Sin persistencia Firestore siempre lee directo del servidor → sync cross-dispositivo correcto.
+  // Persistencia SIN synchronizeTabs: evita el bloqueo de "primary tab" que impedía
+  // conectar al servidor cuando había múltiples pestañas. Permite caché offline por tab.
+  if (!window.__gymFsPersistenceTried) {
+    window.__gymFsPersistenceTried = true;
+    try {
+      firebase.firestore().enablePersistence().catch(() => {});
+    } catch (e) { /* ignore */ }
+  }
 }
 
 function getAuth() {
@@ -2331,7 +2336,13 @@ function App() {
           // Si es un cache-miss (doc no cacheado localmente), esperar el snapshot del servidor
           // antes de crear nada: el documento puede existir en Firestore (ej. datos guardados
           // desde el celular). Crear el doc aquí sobreescribiría esos datos con defaults.
-          if (fromCache) { console.log('[GymTracker] cache-miss → esperando servidor'); return; }
+          if (fromCache) {
+            console.log('[GymTracker] cache-miss → esperando servidor');
+            // No bloquear carga si el cliente está offline: mostrar estado vacío
+            // El snapshot del servidor actualizará cuando haya conexión
+            setLoading(false);
+            return;
+          }
           if (creatingDoc) return;
           creatingDoc = true;
           console.log('[GymTracker] doc no existe en servidor → creando');
