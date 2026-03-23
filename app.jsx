@@ -115,15 +115,9 @@ function ensureFirebaseInitialized() {
     }
     firebase.initializeApp(cfg);
   }
-  // Caché local (tras init): primera lectura suele ser más rápida al iniciar sesión.
-  if (!window.__gymFsPersistenceTried) {
-    window.__gymFsPersistenceTried = true;
-    try {
-      firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch(() => {});
-    } catch (e) {
-      /* ignore */
-    }
-  }
+  // enablePersistence eliminado: el caché IndexedDB con synchronizeTabs bloqueaba la
+  // conexión real al servidor (el snapshot del servidor nunca llegaba, solo el de caché).
+  // Sin persistencia Firestore siempre lee directo del servidor → sync cross-dispositivo correcto.
 }
 
 function getAuth() {
@@ -2330,7 +2324,6 @@ function App() {
     let creatingDoc = false;
 
     const unsub = ref.onSnapshot(
-      { includeMetadataChanges: true },
       async (snap) => {
         const fromCache = snapshotIsFromLocalCache(snap);
         console.log('[GymTracker] onSnapshot', { exists: snap.exists, fromCache, uid: user.uid });
