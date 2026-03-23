@@ -2386,27 +2386,32 @@ function App() {
         let cardioLogs = Array.isArray(d.cardioLogs) ? d.cardioLogs : [];
 
         const local = readLocalMigrationBundle();
-        // Antes se borraba local sin subir: si había historial solo en el celular y la nube ya tenía doc, se perdía.
         if (local.hasAny) {
-          const mergedW = mergeWorkoutLogs(workoutLogs, local.workoutLogs);
-          const mergedC = mergeCardioLogs(cardioLogs, local.cardioLogs);
-          if (mergedW.length !== workoutLogs.length || mergedC.length !== cardioLogs.length) {
-            try {
-              await ref.set(
-                {
-                  workoutLogs: mergedW,
-                  cardioLogs: mergedC,
-                  updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                },
-                { merge: true }
-              );
-            } catch (e) {
-              console.error('merge local → Firestore', e);
+          // CRÍTICO: la migración de localStorage a Firestore solo se hace cuando el snapshot
+          // viene del SERVIDOR. Si usamos datos de caché local (que pueden ser viejos / no incluir
+          // sesiones guardadas desde otro dispositivo), el merge + write sobrescribiría esas
+          // sesiones nuevas en Firestore con datos incompletos.
+          if (!snapshotIsFromLocalCache(snap)) {
+            const mergedW = mergeWorkoutLogs(workoutLogs, local.workoutLogs);
+            const mergedC = mergeCardioLogs(cardioLogs, local.cardioLogs);
+            if (mergedW.length !== workoutLogs.length || mergedC.length !== cardioLogs.length) {
+              try {
+                await ref.set(
+                  {
+                    workoutLogs: mergedW,
+                    cardioLogs: mergedC,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                  },
+                  { merge: true }
+                );
+              } catch (e) {
+                console.error('merge local → Firestore', e);
+              }
+              workoutLogs = mergedW;
+              cardioLogs = mergedC;
             }
-            workoutLogs = mergedW;
-            cardioLogs = mergedC;
+            clearLocalGymKeys();
           }
-          clearLocalGymKeys();
         }
 
         // Unión con el estado actual: no perder sesiones ni cardio si el snapshot llegó antes que el último write.
@@ -2439,7 +2444,9 @@ function App() {
       try {
         const snap = await fetchUserDocPreferServer(ref);
         if (cancelled || !snap.exists) return;
-        applyFullDocFromServerDataIfNotStale(snap.data());
+        // Al login no hay writes en vuelo; aplicar siempre los datos del servidor
+        // sin comparar timestamps (que podrían estar inflados por un snapshot de caché anterior).
+        applyFullDocFromServerData(snap.data());
       } catch (e) {
         console.error('bootstrap servidor userData', e);
       }
