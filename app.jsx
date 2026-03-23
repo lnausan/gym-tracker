@@ -115,12 +115,10 @@ function ensureFirebaseInitialized() {
     }
     firebase.initializeApp(cfg);
   }
-  // Persistencia SIN synchronizeTabs: evita el bloqueo de "primary tab" que impedía
-  // conectar al servidor cuando había múltiples pestañas. Permite caché offline por tab.
   if (!window.__gymFsPersistenceTried) {
     window.__gymFsPersistenceTried = true;
     try {
-      firebase.firestore().enablePersistence().catch(() => {});
+      firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch(() => {});
     } catch (e) { /* ignore */ }
   }
 }
