@@ -81,6 +81,15 @@ async function fetchUserDocPreferServer(ref) {
   }
 }
 
+/** Compat: algunas versiones exponen fromCache, otras isFromCache. */
+function snapshotIsFromLocalCache(snap) {
+  const m = snap.metadata;
+  if (!m) return false;
+  if (m.fromCache === true) return true;
+  if (m.isFromCache === true) return true;
+  return false;
+}
+
 /**
  * ¿Aplicar rutinas/preferencias desde este snapshot?
  * Siempre comparar timestamps, sin importar si el snapshot es de caché o del servidor.
@@ -2327,6 +2336,10 @@ function App() {
       { includeMetadataChanges: true },
       async (snap) => {
         if (!snap.exists) {
+          // Si es un cache-miss (doc no cacheado localmente), esperar el snapshot del servidor
+          // antes de crear nada: el documento puede existir en Firestore (ej. datos guardados
+          // desde el celular). Crear el doc aquí sobreescribiría esos datos con defaults.
+          if (snapshotIsFromLocalCache(snap)) return;
           if (creatingDoc) return;
           creatingDoc = true;
           try {
