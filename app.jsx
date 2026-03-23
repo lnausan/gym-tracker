@@ -1264,7 +1264,7 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
 
 // ─── VISTA HISTORIAL ────────────────────────────────────────
 
-function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDayChange }) {
+function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDayChange, onDeleteLog }) {
   const dayConfig = DAY_MAP[activeDay];
 
   // Get all logs for this day, sorted newest first
@@ -1329,6 +1329,14 @@ function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDa
                       {volTrend != null && <span className="ml-1" title="vs sesión anterior (mismo día)">{trendEmoji(volTrend)}</span>}
                     </p>
                   </div>
+                  {onDeleteLog && (
+                    <button
+                      onClick={() => window.confirm('¿Eliminar esta sesión?') && onDeleteLog(session.id)}
+                      className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center text-xs hover:bg-red-500/20 transition-colors"
+                      title="Eliminar sesión">
+                      🗑️
+                    </button>
+                  )}
                 </div>
                 <div className="space-y-3">
                   {session.exercises.map((ex, i) => {
@@ -2642,6 +2650,17 @@ function App() {
     [persistPartial]
   );
 
+  const deleteLog = useCallback(
+    (sessionId) => {
+      setLogs((prev) => {
+        const updated = prev.filter((s) => s.id !== sessionId);
+        void persistPartial({ workoutLogs: updated });
+        return updated;
+      });
+    },
+    [persistPartial]
+  );
+
   const applyPreset = useCallback(async (presetType) => {
     const labels = { hipertrofia: 'Hipertrofia', fuerza: 'Fuerza', definicion: 'Definición' };
     const label = labels[presetType] || presetType;
@@ -2824,6 +2843,7 @@ function App() {
             trainingWeekDays={trainingWeekDays}
             activeDay={activeDay}
             onDayChange={setActiveDay}
+            onDeleteLog={deleteLog}
           />
         )}
         {activeTab === 'rutina' && (
