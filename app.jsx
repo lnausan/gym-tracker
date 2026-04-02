@@ -81,6 +81,19 @@ async function fetchUserDocPreferServer(ref) {
   }
 }
 
+/**
+ * Crea el doc userData solo si el servidor aún no lo tiene (transacción atómica).
+ * NUNCA hacer set(merge) con workoutLogs: [] si el doc puede existir: borra el historial en la nube.
+ */
+async function createUserDataDocIfServerMissing(ref, payload) {
+  const db = getDb();
+  await db.runTransaction(async (transaction) => {
+    const doc = await transaction.get(ref);
+    if (doc.exists) return;
+    transaction.set(ref, payload);
+  });
+}
+
 /** Compat: algunas versiones exponen fromCache, otras isFromCache. */
 function snapshotIsFromLocalCache(snap) {
   const m = snap.metadata;
@@ -2435,7 +2448,7 @@ function App() {
         if (!snap.exists) {
           if (creatingDoc) return;
           creatingDoc = true;
-          console.log('[GymTracker] doc no existe (confirmado) → creando');
+          console.log('[GymTracker] doc no existe en snapshot → transacción (solo crear si servidor confirma ausencia)');
           try {
             const local = readLocalMigrationBundle();
             const payload = {
@@ -2448,14 +2461,23 @@ function App() {
               cardioLogs: Array.isArray(local.cardioLogs) ? local.cardioLogs : [],
               updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             };
-            await ref.set(payload, { merge: true });
+            await createUserDataDocIfServerMissing(ref, payload);
+            if (effectCancelled) return;
             if (local.hasAny) clearLocalGymKeys();
+            snap = await fetchUserDocPreferServer(ref);
+            fromCache = snapshotIsFromLocalCache(snap);
+            console.log('[GymTracker] post-create fetch', { exists: snap.exists, fromCache });
           } catch (e) {
             console.error('Firestore init doc:', e);
             creatingDoc = false;
             setLoading(false);
+            return;
           }
-          return;
+          creatingDoc = false;
+          if (!snap.exists) {
+            setLoading(false);
+            return;
+          }
         }
 
         if (effectCancelled) return;
@@ -2520,14 +2542,9 @@ function App() {
           }
         }
 
-        // Snapshot del servidor: la nube gana en duplicados (sync desde el celular). Solo caché: conservar sesiones locales recién guardadas.
-        const logSnapFromCache = snapshotIsFromLocalCache(snap);
-        setLogs((prev) =>
-          logSnapFromCache ? mergeWorkoutLogs(prev, workoutLogs) : mergeWorkoutLogs(workoutLogs, prev)
-        );
-        setCardioLogs((prev) =>
-          logSnapFromCache ? mergeCardioLogs(prev, cardioLogs) : mergeCardioLogs(cardioLogs, prev)
-        );
+        // Siempre union por id: el estado local aporta sesiones recién guardadas; el snapshot aporta lo de la nube.
+        setLogs((prev) => mergeWorkoutLogs(prev, workoutLogs));
+        setCardioLogs((prev) => mergeCardioLogs(prev, cardioLogs));
         setLoading(false);
       },
       (err) => {
@@ -2819,6 +2836,31 @@ function App() {
     }
   }, [user, applyFullDocFromServerData]);
 
+  /** Respaldo local en JSON: no depende de Firebase; guardalo en Drive/iCloud cuando tengas sesiones. */
+  const handleDownloadBackup = useCallback(() => {
+    if (!user?.uid) return;
+    const bundle = {
+      exportedAt: new Date().toISOString(),
+      schemaVersion: DATA_SCHEMA_VERSION,
+      accountUid: user.uid,
+      workoutLogs: logs,
+      cardioLogs: cardioLogs,
+      routines,
+      cardioSettings,
+      dayPreferences,
+      trainingWeekDays,
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json;charset=utf-8' });
+    const a = document.createElement('a');
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    a.href = URL.createObjectURL(blob);
+    a.download = `gym-tracker-respaldo-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`;
+    a.rel = 'noopener';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, [user, logs, cardioLogs, routines, cardioSettings, dayPreferences, trainingWeekDays]);
+
   const handleLogout = async () => {
     // No usar waitForPendingWrites aquí: al cerrar sesión Firestore lo rechaza (“user change”) y rompe la UX.
     try {
@@ -2895,6 +2937,15 @@ function App() {
               title="Opcional: la app ya actualiza sola en tiempo real. Usá esto si editaste en otro celular o querés forzar lo último del servidor. Mientras dice … está trabajando (máx. ~12 s)."
             >
               {syncing ? '…' : '↻'}
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadBackup}
+              className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-white/50 hover:text-white/70"
+              title="Descargar respaldo JSON (historial, cardio, rutina). Guardalo en Drive/iCloud cada tanto para no depender solo de la nube."
+              aria-label="Descargar respaldo JSON"
+            >
+              💾
             </button>
             <button
               type="button"
