@@ -6,7 +6,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
-const { useState, useEffect, useRef, useCallback, useMemo } = React;
+const { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } = React;
 
 /** Texto útil del error (Firebase a veces no llena message igual en todos los entornos). */
 function firestoreErrorText(e) {
@@ -1069,21 +1069,71 @@ function WorkoutSummary({ session, logs, onClose }) {
   );
 }
 
-function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDays, logs, activeDay, onDayChange, onSaveLog }) {
+const WORKOUT_DRAFT_STORAGE_V = 1;
+
+function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDays, logs, activeDay, onDayChange, onSaveLog, workoutDraftUid }) {
   const [workoutActive, setWorkoutActive] = useState(false);
+  /** Día congelado al iniciar el workout (evita mezclar rutinas si cambiás día desde otra pestaña). */
+  const [workoutDayKey, setWorkoutDayKey] = useState(null);
   const [workoutExercises, setWorkoutExercises] = useState([]);
   const [startTime, setStartTime] = useState(null);
   const [timer, setTimer] = useState(null);
   const [summary, setSummary] = useState(null);
 
-  const dayConfig = DAY_MAP[activeDay];
-  const dayRoutine = routines[activeDay] || [];
-  const cardioCfg = cardioSettings?.[activeDay] || DEFAULT_CARDIO_SETTINGS[activeDay];
-  const isOptionalDay = dayPreferences?.[activeDay]?.optional === true;
+  const draftStorageKey = workoutDraftUid ? `gym_workout_draft_${workoutDraftUid}` : null;
+
+  const clearWorkoutDraft = () => {
+    if (!draftStorageKey) return;
+    try {
+      sessionStorage.removeItem(draftStorageKey);
+    } catch (_) { /* ignore */ }
+  };
+
+  useLayoutEffect(() => {
+    if (!draftStorageKey) return;
+    try {
+      const raw = sessionStorage.getItem(draftStorageKey);
+      if (!raw) return;
+      const o = JSON.parse(raw);
+      if (o?.v !== WORKOUT_DRAFT_STORAGE_V || !o.workoutActive || !Array.isArray(o.workoutExercises) || o.workoutExercises.length === 0) return;
+      const age = Date.now() - (typeof o.savedAt === 'number' ? o.savedAt : 0);
+      if (age > 36e6) {
+        sessionStorage.removeItem(draftStorageKey);
+        return;
+      }
+      setWorkoutDayKey(o.workoutDayKey ?? null);
+      setWorkoutExercises(o.workoutExercises);
+      setStartTime(typeof o.startTime === 'number' ? o.startTime : Date.now());
+      setWorkoutActive(true);
+    } catch (_) { /* ignore */ }
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    if (!draftStorageKey || !workoutActive || workoutDayKey == null) return;
+    try {
+      sessionStorage.setItem(
+        draftStorageKey,
+        JSON.stringify({
+          v: WORKOUT_DRAFT_STORAGE_V,
+          savedAt: Date.now(),
+          workoutActive: true,
+          workoutDayKey,
+          startTime,
+          workoutExercises,
+        })
+      );
+    } catch (_) { /* ignore quota */ }
+  }, [draftStorageKey, workoutActive, workoutDayKey, startTime, workoutExercises]);
+
+  const dayKey = workoutActive && workoutDayKey != null ? workoutDayKey : activeDay;
+  const dayConfig = DAY_MAP[dayKey];
+  const dayRoutine = routines[dayKey] || [];
+  const cardioCfg = cardioSettings?.[dayKey] || DEFAULT_CARDIO_SETTINGS[dayKey];
+  const isOptionalDay = dayPreferences?.[dayKey]?.optional === true;
 
   const startWorkout = () => {
     const exercises = dayRoutine.map(ex => {
-      const last = getLastSession(logs, activeDay, ex.name);
+      const last = getLastSession(logs, dayKey, ex.name);
       const lastSets = last ? last.exercise.sets : [];
 
       // Parse suggested values from routine template
@@ -1119,6 +1169,7 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
       return { name: ex.name, sets, observation: '' };
     });
     setWorkoutExercises(exercises);
+    setWorkoutDayKey(dayKey);
     setStartTime(Date.now());
     setWorkoutActive(true);
   };
@@ -1134,7 +1185,7 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
     const session = {
       id: uid(),
       date: todayStr(),
-      dayKey: activeDay,
+      dayKey: workoutDayKey ?? dayKey,
       duration,
       exercises: workoutExercises.map(ex => ({
         name: ex.name,
@@ -1146,8 +1197,10 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
     onSaveLog(session);
     setSummary(session);
     setWorkoutActive(false);
+    setWorkoutDayKey(null);
     setWorkoutExercises([]);
     setStartTime(null);
+    clearWorkoutDraft();
   };
 
   return (
@@ -1155,7 +1208,19 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
       {timer && <RestTimer seconds={timer} dayColor={dayConfig.color} onClose={() => setTimer(null)} />}
       {summary && <WorkoutSummary session={summary} logs={logs} onClose={() => setSummary(null)} />}
 
-      <DaySelector active={activeDay} onChange={onDayChange} logs={logs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} showAllDays={false} />
+      <DaySelector
+        active={dayKey}
+        onChange={workoutActive ? () => {} : onDayChange}
+        logs={logs}
+        dayPreferences={dayPreferences}
+        trainingWeekDays={trainingWeekDays}
+        showAllDays={false}
+      />
+      {workoutActive && (
+        <p className="px-4 -mt-1 mb-1 text-[10px] text-center text-white/35">
+          Entreno en curso — el día queda fijo hasta terminar o cancelar. Podés ir a Cardio u Historial sin perder el avance.
+        </p>
+      )}
 
       <div className="text-center py-2">
         <h1 className="font-heading text-3xl tracking-wider" style={{ color: dayConfig.color }}>
@@ -1185,7 +1250,7 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
             </div>
           )}
           {dayRoutine.map((ex, i) => {
-            const last = getLastSession(logs, activeDay, ex.name);
+            const last = getLastSession(logs, dayKey, ex.name);
             const lastSets = last ? last.exercise.sets : [];
             const lastDetail = lastSets.map(s => `${s.kg || 0}kg × ${s.reps || 0}`).join('  ·  ');
             return (
@@ -1237,7 +1302,7 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
               key={i}
               exercise={ex}
               routineExercise={dayRoutine[i] || {}}
-              lastExerciseData={getLastSession(logs, activeDay, ex.name)?.exercise}
+              lastExerciseData={getLastSession(logs, dayKey, ex.name)?.exercise}
               dayColor={dayConfig.color}
               logs={logs}
               onUpdate={updated => updateExercise(i, updated)}
@@ -1246,7 +1311,15 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
           ))}
 
           <div className="flex gap-3 pt-2">
-            <button onClick={() => { setWorkoutActive(false); setWorkoutExercises([]); setStartTime(null); }}
+            <button
+              onClick={() => {
+                setWorkoutActive(false);
+                setWorkoutDayKey(null);
+                setWorkoutExercises([]);
+                setStartTime(null);
+                setTimer(null);
+                clearWorkoutDraft();
+              }}
               className="flex-1 py-3 rounded-xl bg-white/5 text-sm text-white/40 hover:bg-white/10 transition-colors">
               Cancelar
             </button>
@@ -2333,25 +2406,36 @@ function App() {
     const db = getDb();
     const ref = db.collection(USER_DATA_COLLECTION).doc(user.uid);
     let creatingDoc = false;
+    let effectCancelled = false;
 
     const unsub = ref.onSnapshot(
-      async (snap) => {
-        const fromCache = snapshotIsFromLocalCache(snap);
+      { includeMetadataChanges: true },
+      async (initialSnap) => {
+        if (effectCancelled) return;
+        let snap = initialSnap;
+        let fromCache = snapshotIsFromLocalCache(snap);
         console.log('[GymTracker] onSnapshot', { exists: snap.exists, fromCache, uid: user.uid });
-        if (!snap.exists) {
-          // Si es un cache-miss (doc no cacheado localmente), esperar el snapshot del servidor
-          // antes de crear nada: el documento puede existir en Firestore (ej. datos guardados
-          // desde el celular). Crear el doc aquí sobreescribiría esos datos con defaults.
-          if (fromCache) {
-            console.log('[GymTracker] cache-miss → esperando servidor');
-            // No bloquear carga si el cliente está offline: mostrar estado vacío
-            // El snapshot del servidor actualizará cuando haya conexión
+
+        // "No existe" solo en caché local: confirmar con el servidor antes de crear o soltar la UI vacía.
+        if (!snap.exists && fromCache) {
+          console.log('[GymTracker] !exists desde caché → fetch servidor');
+          try {
+            const serverSnap = await fetchUserDocPreferServer(ref);
+            if (effectCancelled) return;
+            snap = serverSnap;
+            fromCache = snapshotIsFromLocalCache(snap);
+            console.log('[GymTracker] post-fetch', { exists: snap.exists, fromCache });
+          } catch (e) {
+            console.error('[GymTracker] fetch tras !exists (caché)', e);
             setLoading(false);
             return;
           }
+        }
+
+        if (!snap.exists) {
           if (creatingDoc) return;
           creatingDoc = true;
-          console.log('[GymTracker] doc no existe en servidor → creando');
+          console.log('[GymTracker] doc no existe (confirmado) → creando');
           try {
             const local = readLocalMigrationBundle();
             const payload = {
@@ -2364,7 +2448,7 @@ function App() {
               cardioLogs: Array.isArray(local.cardioLogs) ? local.cardioLogs : [],
               updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             };
-            await ref.set(payload);
+            await ref.set(payload, { merge: true });
             if (local.hasAny) clearLocalGymKeys();
           } catch (e) {
             console.error('Firestore init doc:', e);
@@ -2374,6 +2458,7 @@ function App() {
           return;
         }
 
+        if (effectCancelled) return;
         creatingDoc = false;
         const d = snap.data();
         const tw = mergeTrainingWeekDays(d.trainingWeekDays);
@@ -2435,9 +2520,14 @@ function App() {
           }
         }
 
-        // Unión con el estado actual: no perder sesiones ni cardio si el snapshot llegó antes que el último write.
-        setLogs((prev) => mergeWorkoutLogs(prev, workoutLogs));
-        setCardioLogs((prev) => mergeCardioLogs(prev, cardioLogs));
+        // Snapshot del servidor: la nube gana en duplicados (sync desde el celular). Solo caché: conservar sesiones locales recién guardadas.
+        const logSnapFromCache = snapshotIsFromLocalCache(snap);
+        setLogs((prev) =>
+          logSnapFromCache ? mergeWorkoutLogs(prev, workoutLogs) : mergeWorkoutLogs(workoutLogs, prev)
+        );
+        setCardioLogs((prev) =>
+          logSnapFromCache ? mergeCardioLogs(prev, cardioLogs) : mergeCardioLogs(cardioLogs, prev)
+        );
         setLoading(false);
       },
       (err) => {
@@ -2453,7 +2543,10 @@ function App() {
       }
     );
 
-    return () => unsub();
+    return () => {
+      effectCancelled = true;
+      unsub();
+    };
   }, [user]);
 
   // Al iniciar sesión: forzar lectura desde el servidor (el listener puede servir primero caché vieja).
@@ -2729,6 +2822,12 @@ function App() {
   const handleLogout = async () => {
     // No usar waitForPendingWrites aquí: al cerrar sesión Firestore lo rechaza (“user change”) y rompe la UX.
     try {
+      const uid = user?.uid;
+      if (uid) {
+        try {
+          sessionStorage.removeItem(`gym_workout_draft_${uid}`);
+        } catch (_) { /* ignore */ }
+      }
       const auth = getAuth();
       await auth.signOut();
     } catch (e) {
@@ -2815,13 +2914,20 @@ function App() {
 
       {/* Content */}
       <main>
-        {activeTab === 'entrenar' && (
-          <EntrenarView routines={routines} logs={logs} activeDay={activeDay}
+        {/* EntrenarView siempre montado: si se desmonta al cambiar de pestaña se pierde el workout en curso. */}
+        <div className={activeTab === 'entrenar' ? '' : 'hidden'} aria-hidden={activeTab !== 'entrenar'}>
+          <EntrenarView
+            routines={routines}
+            logs={logs}
+            activeDay={activeDay}
             cardioSettings={cardioSettings}
             dayPreferences={dayPreferences}
             trainingWeekDays={trainingWeekDays}
-            onDayChange={setActiveDay} onSaveLog={saveLog} />
-        )}
+            onDayChange={setActiveDay}
+            onSaveLog={saveLog}
+            workoutDraftUid={user.uid}
+          />
+        </div>
         {activeTab === 'cardio' && (
           <CardioView
             cardioSettings={cardioSettings}
