@@ -731,6 +731,250 @@ function MiniSparkline({ data, color = '#3b82f6', width = 120, height = 32 }) {
   );
 }
 
+// ─── COACH VIEW ─────────────────────────────────────────────
+
+const MUSCLE_TARGETS = {
+  lunes:     { name: 'Piernas',           min: 12, max: 20, color: '#ef4444' },
+  martes:    { name: 'Empuje',            min: 10, max: 18, color: '#f97316' },
+  miercoles: { name: 'Glúteo / Core',     min: 10, max: 16, color: '#a855f7' },
+  jueves:    { name: 'Full Body + Arms',  min: 15, max: 25, color: '#22c55e' },
+  viernes:   { name: 'Upper / Acces.',    min: 10, max: 18, color: '#eab308' },
+  sabado:    { name: 'Pull (Espalda)',    min: 12, max: 20, color: '#3b82f6' },
+  domingo:   { name: 'Extra / Full Light',min: 8,  max: 14, color: '#64748b' },
+};
+
+const HYPERTROPHY_TIPS = [
+  { icon: '📐', title: 'Rango de repeticiones', body: 'Para hipertrofia máxima, trabajá entre 5 y 30 reps por serie. Variá rangos: fuerza (4-6), moderado (8-12) e hipertrofia metabólica (15-25).' },
+  { icon: '🔁', title: 'Frecuencia semanal', body: 'Cada grupo muscular debería entrenarse 2× por semana. Más frecuencia = más señal de síntesis proteica y más volumen total sostenible.' },
+  { icon: '📈', title: 'Sobrecarga progresiva', body: 'Aumentá el volumen semana a semana: más kg, más reps o más series. Sin progresión no hay adaptación. Mínimo +2.5 kg cada 1-2 semanas en ejercicios compuestos.' },
+  { icon: '😴', title: 'Descanso entre series', body: 'Descansá 2-3 min entre series pesadas (compuestos) y 60-90 seg en ejercicios de aislamiento. Poco descanso = menos fuerza y menor estímulo de crecimiento.' },
+  { icon: '🥩', title: 'Proteína', body: 'Consumí entre 1.6 y 2.2 g de proteína por kg de peso corporal por día. Distribuí la ingesta en 3-5 comidas para maximizar la síntesis muscular.' },
+  { icon: '💤', title: 'Sueño y recuperación', body: 'Dormí 7-9 horas por noche. El crecimiento muscular ocurre durante el descanso, no durante el entrenamiento. Priorizar el sueño es tan importante como entrenar.' },
+  { icon: '📉', title: 'Deload cada 4-6 semanas', body: 'Reducí el volumen al 50% o descansá una semana cada 4-6 semanas de entrenamiento intenso. Mejora la recuperación y previene el sobreentrenamiento.' },
+  { icon: '🎯', title: 'Técnica ante todo', body: 'Un ejercicio bien ejecutado con menos peso activa más músculo que uno malo con mucho peso. Priorizá el control, la tensión y el rango de movimiento completo.' },
+  { icon: '🔥', title: 'Proximidad al fallo', body: 'Para hipertrofia, llegá a 1-3 reps del fallo en la mayoría de tus series. No es necesario ir al fallo en cada set — aumenta el riesgo y la fatiga innecesariamente.' },
+  { icon: '💧', title: 'Hidratación', body: 'Incluso una deshidratación del 2% reduce el rendimiento un 10-20%. Tomá agua antes, durante y después del entrenamiento. Mínimo 2-3 litros por día.' },
+];
+
+function getMonday(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00`);
+  const day = d.getDay();
+  const diff = (day === 0 ? -6 : 1 - day);
+  const mon = new Date(d);
+  mon.setDate(d.getDate() + diff);
+  return mon.toISOString().slice(0, 10);
+}
+
+function CoachView({ logs, routines, trainingWeekDays, cardioLogs }) {
+  const tw = useMemo(() => mergeTrainingWeekDays(trainingWeekDays), [trainingWeekDays]);
+  const today = todayStr();
+  const thisMonday = getMonday(today);
+  const lastMonday = (() => {
+    const d = new Date(`${thisMonday}T12:00:00`);
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  // Sets por grupo esta semana y la anterior
+  const volumeByDay = useMemo(() => {
+    const curr = {};
+    const prev = {};
+    logs.forEach(session => {
+      const mon = getMonday(session.date);
+      const sets = session.exercises.reduce((sum, ex) => sum + ex.sets.filter(s => s.completed || s.reps > 0).length, 0);
+      if (mon === thisMonday) curr[session.dayKey] = (curr[session.dayKey] || 0) + sets;
+      else if (mon === lastMonday) prev[session.dayKey] = (prev[session.dayKey] || 0) + sets;
+    });
+    return { curr, prev };
+  }, [logs, thisMonday, lastMonday]);
+
+  // Sesiones esta semana (adherencia)
+  const thisWeekSessions = useMemo(() =>
+    logs.filter(s => getMonday(s.date) === thisMonday).map(s => s.dayKey),
+    [logs, thisMonday]
+  );
+
+  // Racha de semanas consecutivas
+  const streak = useMemo(() => {
+    if (logs.length === 0) return 0;
+    let count = 0;
+    let checkMonday = thisMonday;
+    for (let i = 0; i < 12; i++) {
+      const weekLogs = logs.filter(s => getMonday(s.date) === checkMonday);
+      if (weekLogs.length === 0 && i > 0) break;
+      if (weekLogs.length > 0) count++;
+      const d = new Date(`${checkMonday}T12:00:00`);
+      d.setDate(d.getDate() - 7);
+      checkMonday = d.toISOString().slice(0, 10);
+    }
+    return count;
+  }, [logs, thisMonday]);
+
+  // Alertas personalizadas
+  const alerts = useMemo(() => {
+    const list = [];
+    // Días sin entrenar esta semana
+    const untrainedThisWeek = tw.filter(d => !thisWeekSessions.includes(d));
+    const daysLeft = (() => {
+      const todayDay = new Date().getDay();
+      return tw.filter(d => {
+        const dayIdx = { lunes:1,martes:2,miercoles:3,jueves:4,viernes:5,sabado:6,domingo:0 };
+        return dayIdx[d] >= todayDay;
+      });
+    })();
+    const pendingThisWeek = untrainedThisWeek.filter(d => daysLeft.includes(d));
+    if (pendingThisWeek.length > 0) {
+      list.push({ type: 'info', icon: '📅', text: `Te quedan ${pendingThisWeek.length} día(s) por entrenar esta semana: ${pendingThisWeek.map(d => DAY_MAP[d]?.label).join(', ')}.` });
+    }
+    // Volumen bajo vs recomendado
+    tw.forEach(dayKey => {
+      const t = MUSCLE_TARGETS[dayKey];
+      if (!t) return;
+      const sets = volumeByDay.curr[dayKey] || 0;
+      if (sets > 0 && sets < t.min) {
+        list.push({ type: 'warning', icon: '⚠️', text: `Poco volumen en ${t.name} esta semana: ${sets} series (mínimo recomendado: ${t.min}).` });
+      }
+    });
+    // Progresión total
+    const currTotal = Object.values(volumeByDay.curr).reduce((a, b) => a + b, 0);
+    const prevTotal = Object.values(volumeByDay.prev).reduce((a, b) => a + b, 0);
+    if (prevTotal > 0 && currTotal < prevTotal * 0.8) {
+      list.push({ type: 'warning', icon: '📉', text: `El volumen de esta semana es un ${Math.round((1 - currTotal/prevTotal)*100)}% menor que la semana pasada. Chequeá si es deload intencional.` });
+    } else if (prevTotal > 0 && currTotal > prevTotal * 1.1) {
+      list.push({ type: 'success', icon: '🚀', text: `¡Estás progresando! Tu volumen esta semana superó la semana anterior en un ${Math.round((currTotal/prevTotal - 1)*100)}%.` });
+    }
+    // Deload warning
+    if (streak >= 5) {
+      list.push({ type: 'warning', icon: '😮‍💨', text: `Llevas ${streak} semanas seguidas entrenando. Considerá una semana de deload (50% del volumen) para maximizar la recuperación.` });
+    }
+    // Sin historial
+    if (logs.length === 0) {
+      list.push({ type: 'info', icon: '👋', text: 'Aún no tenés sesiones registradas. Comenzá a entrenar para recibir recomendaciones personalizadas.' });
+    }
+    return list;
+  }, [tw, thisWeekSessions, volumeByDay, streak, logs.length]);
+
+  const [showAllTips, setShowAllTips] = useState(false);
+  const visibleTips = showAllTips ? HYPERTROPHY_TIPS : HYPERTROPHY_TIPS.slice(0, 3);
+
+  const adherencia = tw.length > 0 ? Math.round((thisWeekSessions.length / tw.length) * 100) : 0;
+  const currTotal = Object.values(volumeByDay.curr).reduce((a, b) => a + b, 0);
+  const prevTotal = Object.values(volumeByDay.prev).reduce((a, b) => a + b, 0);
+
+  return (
+    <div className="pb-24 px-4 space-y-4 pt-4">
+      {/* Header */}
+      <div className="text-center pb-2">
+        <h1 className="font-heading text-2xl tracking-wider text-white">🧠 Coach</h1>
+        <p className="text-xs text-white/30 mt-1">Análisis personalizado basado en tu historial</p>
+      </div>
+
+      {/* Resumen semanal */}
+      <div className="glass rounded-2xl p-4 space-y-3">
+        <p className="text-xs font-bold uppercase tracking-widest text-white/40">📊 Esta semana</p>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="text-center">
+            <p className="text-2xl font-heading text-white">{thisWeekSessions.length}<span className="text-sm text-white/40">/{tw.length}</span></p>
+            <p className="text-[10px] text-white/40 uppercase tracking-wide mt-0.5">Días</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-heading" style={{ color: adherencia >= 80 ? '#22c55e' : adherencia >= 50 ? '#eab308' : '#ef4444' }}>{adherencia}%</p>
+            <p className="text-[10px] text-white/40 uppercase tracking-wide mt-0.5">Adherencia</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-heading text-white">{streak}</p>
+            <p className="text-[10px] text-white/40 uppercase tracking-wide mt-0.5">Racha sem.</p>
+          </div>
+        </div>
+        {prevTotal > 0 && (
+          <div className="flex items-center gap-2 pt-1 border-t border-white/5">
+            <span className="text-xs text-white/40">Volumen total:</span>
+            <span className="text-xs font-medium text-white">{currTotal} sets</span>
+            <span className="text-xs" style={{ color: currTotal >= prevTotal ? '#22c55e' : '#ef4444' }}>
+              {currTotal >= prevTotal ? '▲' : '▼'} vs {prevTotal} sem. ant.
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Volumen por grupo muscular */}
+      {tw.length > 0 && (
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <p className="text-xs font-bold uppercase tracking-widest text-white/40">💪 Volumen por grupo</p>
+          <p className="text-[10px] text-white/25">Series completadas esta semana vs rango recomendado</p>
+          <div className="space-y-3">
+            {tw.map(dayKey => {
+              const t = MUSCLE_TARGETS[dayKey] || { name: DAY_MAP[dayKey]?.title, min: 10, max: 20, color: '#64748b' };
+              const sets = volumeByDay.curr[dayKey] || 0;
+              const pct = Math.min(100, (sets / t.max) * 100);
+              const status = sets === 0 ? 'none' : sets < t.min ? 'low' : sets <= t.max ? 'ok' : 'high';
+              const statusColor = { none: '#ffffff22', low: '#ef4444', ok: '#22c55e', high: '#eab308' }[status];
+              const statusLabel = { none: 'Sin datos', low: 'Bajo', ok: 'Óptimo', high: 'Alto' }[status];
+              return (
+                <div key={dayKey}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">{DAY_MAP[dayKey]?.emoji}</span>
+                      <span className="text-xs font-medium text-white/70">{t.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold" style={{ color: statusColor }}>{sets} series</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: `${statusColor}22`, color: statusColor }}>{statusLabel}</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: t.color }} />
+                  </div>
+                  <div className="flex justify-between mt-0.5">
+                    <span className="text-[9px] text-white/20">0</span>
+                    <span className="text-[9px] text-white/20">Rec: {t.min}–{t.max}</span>
+                    <span className="text-[9px] text-white/20">{t.max}+</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Alertas personalizadas */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold uppercase tracking-widest text-white/40 px-1">⚡ Alertas y recomendaciones</p>
+          {alerts.map((a, i) => {
+            const bg = { info: 'rgba(59,130,246,0.1)', warning: 'rgba(234,179,8,0.1)', success: 'rgba(34,197,94,0.1)' }[a.type];
+            const border = { info: '#3b82f644', warning: '#eab30844', success: '#22c55e44' }[a.type];
+            return (
+              <div key={i} className="rounded-2xl p-3 flex gap-3 items-start" style={{ background: bg, border: `1px solid ${border}` }}>
+                <span className="text-base shrink-0">{a.icon}</span>
+                <p className="text-xs text-white/70 leading-relaxed">{a.text}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Tips de hipertrofia */}
+      <div className="space-y-2">
+        <p className="text-xs font-bold uppercase tracking-widest text-white/40 px-1">💡 Tips de hipertrofia</p>
+        {visibleTips.map((tip, i) => (
+          <div key={i} className="glass rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-base">{tip.icon}</span>
+              <p className="text-xs font-bold text-white/80">{tip.title}</p>
+            </div>
+            <p className="text-xs text-white/45 leading-relaxed">{tip.body}</p>
+          </div>
+        ))}
+        <button onClick={() => setShowAllTips(v => !v)}
+          className="w-full py-2.5 rounded-2xl bg-white/5 text-xs text-white/40 hover:bg-white/10 transition-colors">
+          {showAllTips ? 'Ver menos ▲' : `Ver más tips (${HYPERTROPHY_TIPS.length - 3} más) ▼`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // -- Bottom Tab Bar --
 function BottomTabBar({ active, onChange }) {
   const tabs = [
@@ -739,6 +983,7 @@ function BottomTabBar({ active, onChange }) {
     { key: 'dashboard', icon: '📈', label: 'Panel' },
     { key: 'historial', icon: '📊', label: 'Historial' },
     { key: 'rutina',    icon: '⚙️', label: 'Rutina' },
+    { key: 'coach',     icon: '🧠', label: 'Coach' },
   ];
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 glass-strong safe-bottom">
@@ -3013,6 +3258,14 @@ function App() {
             onApplyPreset={applyPreset}
             onCloneDayTo={cloneDayTo}
             activeDay={activeDay} onDayChange={setActiveDay} />
+        )}
+        {activeTab === 'coach' && (
+          <CoachView
+            logs={logs}
+            routines={routines}
+            trainingWeekDays={trainingWeekDays}
+            cardioLogs={cardioLogs}
+          />
         )}
       </main>
 
