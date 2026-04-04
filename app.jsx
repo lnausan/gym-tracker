@@ -862,7 +862,7 @@ function CoachView({ logs, routines, trainingWeekDays, cardioLogs }) {
   const prevTotal = Object.values(volumeByDay.prev).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="pb-24 px-4 space-y-4 pt-4">
+    <div className="px-4 pt-4 pb-2 space-y-4">
       {/* Header */}
       <div className="text-center pb-2">
         <h1 className="font-heading text-2xl tracking-wider text-white">🧠 Coach</h1>
@@ -986,13 +986,19 @@ function BottomTabBar({ active, onChange }) {
     { key: 'coach',     icon: '🧠', label: 'Coach' },
   ];
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 glass-strong safe-bottom">
-      <div className="flex justify-around items-center max-w-lg mx-auto h-16">
-        {tabs.map(t => (
-          <button key={t.key} onClick={() => onChange(t.key)}
-            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-xl transition-all duration-200 ${active === t.key ? 'text-white scale-105' : 'text-white/40 hover:text-white/60'}`}>
-            <span className="text-xl">{t.icon}</span>
-            <span className="text-[10px] font-medium tracking-wide uppercase">{t.label}</span>
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 glass-strong safe-bottom border-t border-white/[0.06]"
+      role="navigation"
+      aria-label="Navegación principal">
+      <div className="flex justify-between items-stretch max-w-lg mx-auto min-h-[52px] sm:min-h-14">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => onChange(t.key)}
+            className={`flex flex-1 min-w-0 flex-col items-center justify-center gap-0.5 min-h-[48px] px-1 sm:px-3 py-1.5 rounded-xl touch-manipulation transition-all duration-200 active:opacity-85 ${active === t.key ? 'text-white scale-[1.02]' : 'text-white/40'}`}>
+            <span className="text-[1.35rem] leading-none" aria-hidden="true">{t.icon}</span>
+            <span className="text-[9px] sm:text-[10px] font-medium tracking-wide uppercase leading-tight text-center">{t.label}</span>
           </button>
         ))}
       </div>
@@ -1031,7 +1037,7 @@ function DaySelector({ active, onChange, logs, cardioLogs, dayPreferences, train
   }, [showAllDays, schedule, logDayKeys]);
 
   return (
-    <div className="flex gap-2 justify-center px-2 py-3 overflow-x-auto scroll-hide">
+    <div className="flex gap-2 justify-center px-2 py-3 overflow-x-auto scroll-hide touch-pan-x">
       {daysToShow.map((d) => {
         const isActive = active === d.key;
         const hasDot = sessionDays[d.key];
@@ -1039,9 +1045,9 @@ function DaySelector({ active, onChange, logs, cardioLogs, dayPreferences, train
         const inSchedule = schedule.includes(d.key);
         const isOffWeek = !!showAllDays && !inSchedule;
         return (
-          <button key={d.key} onClick={() => onChange(d.key)}
+          <button key={d.key} type="button" onClick={() => onChange(d.key)}
             style={{ '--day-color': d.color, borderColor: isActive ? d.color : 'transparent', opacity: isOffWeek ? 0.45 : undefined }}
-            className={`relative flex flex-col items-center min-w-[56px] px-3 py-2 rounded-xl border-2 transition-all duration-200 ${isActive ? 'day-glow bg-white/10 scale-105' : 'bg-white/5 hover:bg-white/8'}`}>
+            className={`relative flex flex-col items-center justify-center min-w-[56px] min-h-[48px] px-3 py-2 rounded-xl border-2 touch-manipulation transition-all duration-200 ${isActive ? 'day-glow bg-white/10 scale-105' : 'bg-white/5 active:bg-white/10'}`}>
             <span className="text-lg">{d.emoji}</span>
             <span className={`text-xs font-bold tracking-wider ${isActive ? 'text-white' : 'text-white/50'}`}>{d.label}</span>
             {isOptional && <span className="absolute -top-1 -right-1 text-[8px] bg-purple-500/30 text-purple-300 px-1 rounded-full">OPC</span>}
@@ -1462,7 +1468,7 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
   };
 
   return (
-    <div className="pb-20">
+    <div className="pb-2">
       {timer && <RestTimer seconds={timer} dayColor={dayConfig.color} onClose={() => setTimer(null)} />}
       {summary && <WorkoutSummary session={summary} logs={logs} onClose={() => setSummary(null)} />}
 
@@ -1627,7 +1633,7 @@ function HistorialView({ logs, dayPreferences, trainingWeekDays, activeDay, onDa
   };
 
   return (
-    <div className="pb-20">
+    <div className="pb-2">
       <DaySelector active={activeDay} onChange={onDayChange} logs={logs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} showAllDays={false} />
 
       <div className="text-center py-2">
@@ -1918,7 +1924,7 @@ function RutinaView({ routines, cardioSettings, dayPreferences, trainingWeekDays
   };
 
   return (
-    <div className="pb-20">
+    <div className="pb-2">
       <DaySelector active={activeDay} onChange={onDayChange} logs={null} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} showAllDays />
 
       <div className="text-center py-2">
@@ -2187,7 +2193,7 @@ function CardioView({ cardioSettings, cardioLogs, dayPreferences, trainingWeekDa
   };
 
   return (
-    <div className="pb-20">
+    <div className="pb-2">
       <DaySelector active={activeDay} onChange={onDayChange} logs={null} cardioLogs={cardioLogs} dayPreferences={dayPreferences} trainingWeekDays={trainingWeekDays} showAllDays={false} />
 
       <div className="text-center py-2">
@@ -2319,7 +2325,7 @@ function DashboardView({ logs, cardioLogs, onNavigateTab }) {
   };
 
   return (
-    <div className="pb-28 px-4 relative z-10">
+    <div className="px-4 pt-2 pb-2 relative z-10">
       {typeof onNavigateTab === 'function' && (
         <div className="glass rounded-2xl p-4 mb-3 border border-white/10">
           <p className="text-[11px] text-white/50 leading-relaxed">
@@ -2462,7 +2468,9 @@ function LoginScreen({ onAuth }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: 'radial-gradient(ellipse at top, #1a1a2e 0%, #0a0a0f 70%)' }}>
+    <div
+      className="min-h-[100dvh] flex items-center justify-center px-4 py-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+      style={{ background: 'radial-gradient(ellipse at top, #1a1a2e 0%, #0a0a0f 70%)' }}>
       <div className="w-full max-w-sm animate-slide-up">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -3133,7 +3141,7 @@ function App() {
   // Auth loading
   if (authLoading) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="min-h-[100dvh] min-h-screen flex items-center justify-center px-4">
         <div className="text-center">
           <p className="font-heading text-5xl tracking-wider animate-pulse">GYM TRACKER</p>
           <p className="text-white/30 text-sm mt-2">Cargando...</p>
@@ -3150,7 +3158,7 @@ function App() {
   // Data loading
   if (loading || !routines || !cardioSettings || !dayPreferences || trainingWeekDays === null) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="min-h-[100dvh] min-h-screen flex items-center justify-center px-4">
         <div className="text-center">
           <p className="font-heading text-5xl tracking-wider animate-pulse">GYM TRACKER</p>
           <p className="text-white/30 text-sm mt-2">Cargando rutinas...</p>
@@ -3160,14 +3168,14 @@ function App() {
   }
 
   return (
-    <div className="max-w-lg mx-auto min-h-screen font-body">
+    <div className="max-w-lg mx-auto min-h-[100dvh] min-h-screen font-body">
       {/* Header */}
-      <header className="sticky top-0 z-40 glass-strong">
-        <div className="flex items-center justify-between px-4 py-3">
-          <h1 className="font-heading text-2xl tracking-wider">GYM TRACKER</h1>
-          <div className="flex items-center gap-2">
+      <header className="sticky top-0 z-40 glass-strong pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
+        <div className="flex items-center justify-between px-3 sm:px-4 pb-3">
+          <h1 className="font-heading text-xl sm:text-2xl tracking-wider shrink-0">GYM TRACKER</h1>
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {totalSessions > 0 && (
-              <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-orange-500/10">
+              <div className="flex items-center gap-1 px-2 py-1.5 min-h-[44px] rounded-lg bg-orange-500/10">
                 <span className="text-xs">🔥</span>
                 <span className="text-xs font-medium text-orange-400">{totalSessions}</span>
               </div>
@@ -3178,7 +3186,7 @@ function App() {
               disabled={syncing}
               aria-busy={syncing}
               aria-label={syncing ? 'Sincronizando…' : 'Forzar lectura desde la nube'}
-              className="px-2 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-[10px] text-cyan-200/90 disabled:opacity-40 disabled:pointer-events-none"
+              className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-sm text-cyan-200/90 disabled:opacity-40 disabled:pointer-events-none touch-manipulation"
               title="Opcional: la app ya actualiza sola en tiempo real. Usá esto si editaste en otro celular o querés forzar lo último del servidor. Mientras dice … está trabajando (máx. ~12 s)."
             >
               {syncing ? '…' : '↻'}
@@ -3186,7 +3194,7 @@ function App() {
             <button
               type="button"
               onClick={handleDownloadBackup}
-              className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-white/50 hover:text-white/70"
+              className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-xl bg-white/5 hover:bg-white/10 text-base touch-manipulation"
               title="Descargar respaldo JSON (historial, cardio, rutina). Guardalo en Drive/iCloud cada tanto para no depender solo de la nube."
               aria-label="Descargar respaldo JSON"
             >
@@ -3195,7 +3203,7 @@ function App() {
             <button
               type="button"
               onClick={handleLogout}
-              className="flex items-center gap-1.5 px-2 py-1.5 min-h-[36px] rounded-lg bg-white/5 hover:bg-white/10 transition-colors touch-manipulation"
+              className="flex items-center gap-1.5 pl-2 pr-2 py-2 min-h-[44px] rounded-xl bg-white/5 hover:bg-white/10 transition-colors touch-manipulation max-w-[140px] sm:max-w-none"
               title="Cerrar sesión"
               aria-label="Cerrar sesión"
             >
@@ -3208,8 +3216,8 @@ function App() {
         </div>
       </header>
 
-      {/* Content */}
-      <main>
+      {/* Content: padding inferior para barra fija + safe area (iPhone). */}
+      <main className="pb-mobile-nav">
         {/* EntrenarView siempre montado: si se desmonta al cambiar de pestaña se pierde el workout en curso. */}
         <div className={activeTab === 'entrenar' ? '' : 'hidden'} aria-hidden={activeTab !== 'entrenar'}>
           <EntrenarView
