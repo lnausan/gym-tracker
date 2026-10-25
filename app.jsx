@@ -302,6 +302,46 @@ const DEFAULT_ROUTINES = {
   ],
 };
 
+/** Bloque 4 días (oct 2026). Nombres iguales a los de la rutina vieja cuando es el mismo
+ *  ejercicio, para que historial, PRs y "Última sesión" sigan enganchando. */
+const BLOQUE_4D_DAYS = ['lunes', 'martes', 'jueves', 'sabado'];
+const BLOQUE_4D_ROUTINES = {
+  lunes: [
+    { id: 'b4l1', name: 'Sentadilla barra',                topSet: '75 kg × 7',         backOff: '—',        rest: '2:30–3\'', note: 'Si llegás a 8 reps limpias → +2.5 kg', order: 0 },
+    { id: 'b4l2', name: 'Bulgarian split squat',           topSet: '20 kg × 12',        backOff: '—',        rest: '2\'',      note: '',                                      order: 1 },
+    { id: 'b4l3', name: 'Prensa 45° (3s bajada)',          topSet: '150 kg × 13',       backOff: '—',        rest: '2\'',      note: '',                                      order: 2 },
+    { id: 'b4l4', name: 'Curl femoral',                    topSet: '80 kg × 12',        backOff: '—',        rest: '90–120s',  note: '',                                      order: 3 },
+    { id: 'b4l5', name: 'Pantorrillas prensa',             topSet: '190 kg × 25',       backOff: '—',        rest: '60s',      note: 'Squeeze arriba',                        order: 4 },
+    { id: 'b4l6', name: 'Core máquina abdominal',          topSet: '50 kg × 25',        backOff: '—',        rest: '—',        note: 'Lento',                                 order: 5 },
+  ],
+  martes: [
+    { id: 'b4m1', name: 'Press de pecho en máquina',       topSet: '100 kg × 10',       backOff: '—',        rest: '2\'',      note: '',                                      order: 0 },
+    { id: 'b4m2', name: 'Press inclinado mancuernas',      topSet: '50 kg × 9',         backOff: '—',        rest: '2\'',      note: '',                                      order: 1 },
+    { id: 'b4m3', name: 'Press militar',                   topSet: '22.5 kg × 10',      backOff: '—',        rest: '2\'',      note: 'Venías de 25 × 6: una semana con 22.5 × 10 y subí desde ahí', order: 2 },
+    { id: 'b4m4', name: 'Elevaciones laterales',           topSet: '30 kg × 15',        backOff: '—',        rest: '60–90s',   note: 'Controladas',                           order: 3 },
+    { id: 'b4m5', name: 'Fondos / Polea tríceps',          topSet: '25 kg × 14',        backOff: '—',        rest: '2\'',      note: '',                                      order: 4 },
+    { id: 'b4m6', name: 'Curl de bíceps (predicador o mancuernas)', topSet: '10–12 reps', backOff: '—',      rest: '90s',      note: 'Nuevo: empezá con peso moderado',       order: 5 },
+  ],
+  jueves: [
+    { id: 'b4j1', name: 'Hip thrust',                      topSet: '120 kg × 12',       backOff: '—',        rest: '2\'',      note: '',                                      order: 0 },
+    { id: 'b4j2', name: 'Remo Hammer',                     topSet: '80 kg × 10',        backOff: '—',        rest: '2\'',      note: '',                                      order: 1 },
+    { id: 'b4j3', name: 'Peck deck',                       topSet: '10–12 reps',        backOff: '12–15 reps', rest: '90s',    note: 'Nuevo',                                 order: 2 },
+    { id: 'b4j4', name: 'Elevación lateral polea 1 mano',  topSet: '10 kg × 13',        backOff: '—',        rest: '60s',      note: '',                                      order: 3 },
+    { id: 'b4j5', name: 'Curl martillo',                   topSet: '50 kg × 12',        backOff: '—',        rest: '90s',      note: '',                                      order: 4 },
+    { id: 'b4j6', name: 'Tríceps cuerda',                  topSet: '22.5 kg × 12',      backOff: '—',        rest: '90s',      note: '',                                      order: 5 },
+  ],
+  sabado: [
+    { id: 'b4s1', name: 'Jalón / dominadas',               topSet: '65 kg × 9',         backOff: '—',        rest: '2\'',      note: '',                                      order: 0 },
+    { id: 'b4s2', name: 'Peso muerto',                     topSet: '70 kg × 12',        backOff: '—',        rest: '3\'',      note: 'Calidad > fatiga',                      order: 1 },
+    { id: 'b4s3', name: 'Remo barra / T',                  topSet: '65 kg × 8',         backOff: '—',        rest: '2\'',      note: '',                                      order: 2 },
+    { id: 'b4s4', name: 'Lateral en banco',                topSet: '35 kg × 10',        backOff: '—',        rest: '60–90s',   note: '',                                      order: 3 },
+    { id: 'b4s5', name: 'Curl barra Z',                    topSet: '37.5 kg × 9',       backOff: '—',        rest: '90s',      note: '',                                      order: 4 },
+    { id: 'b4s6', name: 'Curl inclinado / cable',          topSet: '28 kg × 9',         backOff: '—',        rest: '60–90s',   note: '',                                      order: 5 },
+    { id: 'b4s7', name: 'Extensión piernas (pausa 1s)',    topSet: '80 kg × 15',        backOff: '—',        rest: '90s',      note: '',                                      order: 6 },
+    { id: 'b4s8', name: 'Ab wheel / máquina',              topSet: '50 kg × 20',        backOff: '—',        rest: '—',        note: '',                                      order: 7 },
+  ],
+};
+
 // ─── DEFAULT CARDIO SETTINGS ───────────────────────────────
 // Se guarda separado de las rutinas de pesas para no romper la estructura existente.
 const DEFAULT_CARDIO_SETTINGS = (() => {
@@ -444,6 +484,11 @@ function getLastSession(logs, dayKey, exerciseName) {
       const ex = logs[i].exercises.find(e => e.name === exerciseName);
       if (ex) return { session: logs[i], exercise: ex };
     }
+  }
+  // Fallback: el ejercicio pudo cambiar de día (ej. búlgaro de miércoles a lunes).
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const ex = logs[i].exercises.find(e => e.name === exerciseName);
+    if (ex) return { session: logs[i], exercise: ex };
   }
   return null;
 }
@@ -977,6 +1022,31 @@ function CoachView({ logs, routines, trainingWeekDays, cardioLogs }) {
 
 // -- Bottom Tab Bar --
 function BottomTabBar({ active, onChange }) {
+  // En iOS la barra fija queda flotando sobre el teclado y tapa los inputs de kg/reps:
+  // se oculta mientras hay un campo de texto enfocado.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  useEffect(() => {
+    const isField = (el) => el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+    let blurId;
+    const onFocusIn = (e) => {
+      if (!isField(e.target)) return;
+      clearTimeout(blurId);
+      setKeyboardOpen(true);
+    };
+    // Delay: al saltar de un input a otro llega focusout antes del focusin siguiente.
+    const onFocusOut = () => {
+      clearTimeout(blurId);
+      blurId = setTimeout(() => setKeyboardOpen(isField(document.activeElement)), 150);
+    };
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
+    return () => {
+      clearTimeout(blurId);
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('focusout', onFocusOut);
+    };
+  }, []);
+  if (keyboardOpen) return null;
   const tabs = [
     { key: 'entrenar',  icon: '💪', label: 'Entrenar' },
     { key: 'cardio',    icon: '🏃‍♂️', label: 'Cardio' },
@@ -1349,6 +1419,7 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
   const clearWorkoutDraft = () => {
     if (!draftStorageKey) return;
     try {
+      localStorage.removeItem(draftStorageKey);
       sessionStorage.removeItem(draftStorageKey);
     } catch (_) { /* ignore */ }
   };
@@ -1356,13 +1427,15 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
   useLayoutEffect(() => {
     if (!draftStorageKey) return;
     try {
-      const raw = sessionStorage.getItem(draftStorageKey);
+      // localStorage: iOS borra sessionStorage cuando mata la app en segundo plano
+      // (minimizar y volver un rato después). sessionStorage solo como fallback de drafts viejos.
+      const raw = localStorage.getItem(draftStorageKey) || sessionStorage.getItem(draftStorageKey);
       if (!raw) return;
       const o = JSON.parse(raw);
       if (o?.v !== WORKOUT_DRAFT_STORAGE_V || !o.workoutActive || !Array.isArray(o.workoutExercises) || o.workoutExercises.length === 0) return;
       const age = Date.now() - (typeof o.savedAt === 'number' ? o.savedAt : 0);
       if (age > 36e6) {
-        sessionStorage.removeItem(draftStorageKey);
+        clearWorkoutDraft();
         return;
       }
       setWorkoutDayKey(o.workoutDayKey ?? null);
@@ -1375,7 +1448,7 @@ function EntrenarView({ routines, cardioSettings, dayPreferences, trainingWeekDa
   useEffect(() => {
     if (!draftStorageKey || !workoutActive || workoutDayKey == null) return;
     try {
-      sessionStorage.setItem(
+      localStorage.setItem(
         draftStorageKey,
         JSON.stringify({
           v: WORKOUT_DRAFT_STORAGE_V,
@@ -1984,6 +2057,13 @@ function RutinaView({ routines, cardioSettings, dayPreferences, trainingWeekDays
         <div className="glass rounded-2xl p-4 space-y-3" style={{ borderColor: 'rgba(59,130,246,0.35)', background: 'rgba(59,130,246,0.08)' }}>
           <p className="font-bold text-sm">📋 Plantillas prearmadas</p>
           <p className="text-[11px] text-white/40">Reemplaza toda la rutina (todos los días). Podés editar después.</p>
+          <button
+            type="button"
+            onClick={() => onApplyPreset && onApplyPreset('bloque4d')}
+            className="w-full py-2.5 rounded-lg text-xs font-bold bg-blue-500/25 hover:bg-blue-500/35 text-white"
+          >
+            🆕 Bloque 4 días (Lun · Mar · Jue · Sáb)
+          </button>
           <div className="grid grid-cols-3 gap-2">
             {[
               { key: 'hipertrofia', label: 'Hipertrofia' },
@@ -2606,8 +2686,11 @@ function App() {
     setRoutines(mr);
     setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
     setDayPreferences(mergeDayPreferences(d.dayPreferences));
-    setLogs(Array.isArray(d.workoutLogs) ? d.workoutLogs : []);
-    setCardioLogs(Array.isArray(d.cardioLogs) ? d.cardioLogs : []);
+    // Union por id con lo que ya hay en memoria: una sesión guardada localmente pero
+    // todavía no confirmada en el servidor (ej. mala señal) no debe desaparecer por
+    // pisar el estado con una lectura vieja del servidor (login, ↻ Sync, volver a la pestaña).
+    setLogs((prev) => mergeWorkoutLogs(prev, Array.isArray(d.workoutLogs) ? d.workoutLogs : []));
+    setCardioLogs((prev) => mergeCardioLogs(prev, Array.isArray(d.cardioLogs) ? d.cardioLogs : []));
     setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
   }, []);
 
@@ -3025,12 +3108,18 @@ function App() {
   );
 
   const applyPreset = useCallback(async (presetType) => {
+    if (presetType === 'bloque4d') {
+      if (!window.confirm('¿Aplicar el "Bloque 4 días"? Reemplaza lunes, martes, jueves y sábado y deja solo esos 4 días como días de entreno. El historial no se toca.')) return;
+      await updateRoutines((prev) => ({ ...prev, ...JSON.parse(JSON.stringify(BLOQUE_4D_ROUTINES)) }));
+      await updateTrainingWeekDays(BLOQUE_4D_DAYS);
+      return;
+    }
     const labels = { hipertrofia: 'Hipertrofia', fuerza: 'Fuerza', definicion: 'Definición' };
     const label = labels[presetType] || presetType;
     if (!window.confirm(`¿Reemplazar TODA la rutina (todos los días) por la plantilla "${label}"?`)) return;
     const next = buildPresetRoutines(presetType);
     await updateRoutines(next);
-  }, [updateRoutines]);
+  }, [updateRoutines, updateTrainingWeekDays]);
 
   const cloneDayTo = useCallback(async (fromDay, toDay) => {
     if (!fromDay || !toDay || fromDay === toDay) return;
@@ -3120,6 +3209,7 @@ function App() {
       const uid = user?.uid;
       if (uid) {
         try {
+          localStorage.removeItem(`gym_workout_draft_${uid}`);
           sessionStorage.removeItem(`gym_workout_draft_${uid}`);
         } catch (_) { /* ignore */ }
       }
@@ -3141,7 +3231,7 @@ function App() {
   // Auth loading
   if (authLoading) {
     return (
-      <div className="min-h-[100dvh] min-h-screen flex items-center justify-center px-4">
+      <div className="min-h-[100dvh] flex items-center justify-center px-4">
         <div className="text-center">
           <p className="font-heading text-5xl tracking-wider animate-pulse">GYM TRACKER</p>
           <p className="text-white/30 text-sm mt-2">Cargando...</p>
@@ -3158,7 +3248,7 @@ function App() {
   // Data loading
   if (loading || !routines || !cardioSettings || !dayPreferences || trainingWeekDays === null) {
     return (
-      <div className="min-h-[100dvh] min-h-screen flex items-center justify-center px-4">
+      <div className="min-h-[100dvh] flex items-center justify-center px-4">
         <div className="text-center">
           <p className="font-heading text-5xl tracking-wider animate-pulse">GYM TRACKER</p>
           <p className="text-white/30 text-sm mt-2">Cargando rutinas...</p>
@@ -3168,7 +3258,7 @@ function App() {
   }
 
   return (
-    <div className="max-w-lg mx-auto min-h-[100dvh] min-h-screen font-body">
+    <div className="max-w-lg mx-auto min-h-[100dvh] font-body">
       {/* Header */}
       <header className="sticky top-0 z-40 glass-strong pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
         <div className="flex items-center justify-between px-3 sm:px-4 pb-3">

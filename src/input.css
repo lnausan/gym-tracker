@@ -5,6 +5,8 @@
 @layer base {
   html {
     height: 100%;
+    /* Al enfocar un input, el scroll lo deja por encima de la barra inferior fija. */
+    scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
   }
   * {
     box-sizing: border-box;
@@ -81,7 +83,7 @@
   }
   /** Espacio sobre la barra fija inferior (h-16 + home indicator + margen). */
   .pb-mobile-nav {
-    padding-bottom: calc(4.85rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
   }
   .touch-manipulation {
     touch-action: manipulation;
