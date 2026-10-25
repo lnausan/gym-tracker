@@ -17,6 +17,8 @@ await esbuild.build({
   jsx: 'transform',
   jsxFactory: 'React.createElement',
   jsxFragment: 'React.Fragment',
+  // Visible en ⚙️ Rutina para saber qué versión tiene cargada el teléfono.
+  define: { __BUILD_ID__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')) },
 });
 
 console.log('Built app.compiled.js');

@@ -304,6 +304,7 @@ const DEFAULT_ROUTINES = {
 
 /** Bloque 4 días (oct 2026). Nombres iguales a los de la rutina vieja cuando es el mismo
  *  ejercicio, para que historial, PRs y "Última sesión" sigan enganchando. */
+const BLOQUE_4D_ID = 'bloque4d-2026-10';
 const BLOQUE_4D_DAYS = ['lunes', 'martes', 'jueves', 'sabado'];
 const BLOQUE_4D_ROUTINES = {
   lunes: [
@@ -2056,6 +2057,7 @@ function RutinaView({ routines, cardioSettings, dayPreferences, trainingWeekDays
 
         <div className="glass rounded-2xl p-4 space-y-3" style={{ borderColor: 'rgba(59,130,246,0.35)', background: 'rgba(59,130,246,0.08)' }}>
           <p className="font-bold text-sm">📋 Plantillas prearmadas</p>
+          <p className="text-[10px] text-white/30">Versión de la app: {typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev'}</p>
           <p className="text-[11px] text-white/40">Reemplaza toda la rutina (todos los días). Podés editar después.</p>
           <button
             type="button"
@@ -2669,6 +2671,9 @@ function App() {
   const [cardioLogs, setCardioLogs] = useState([]);
   const [logs, setLogs] = useState([]);
   const [syncing, setSyncing] = useState(false);
+  /** Campo `routineBlock` del doc: undefined = aún no leído, null = nunca se aplicó un bloque. */
+  const [routineBlock, setRoutineBlock] = useState(undefined);
+  const autoBlockAppliedRef = useRef(false);
   /** Último clientWriteTs conocido como confirmado (snapshots / set exitoso). */
   const lastLocalWriteTsRef = useRef(0);
   /** Mientras hay un set() en vuelo: timestamp optimista (solo hasta que confirme o falle). */
@@ -2686,6 +2691,7 @@ function App() {
     setRoutines(mr);
     setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
     setDayPreferences(mergeDayPreferences(d.dayPreferences));
+    setRoutineBlock(d.routineBlock || null);
     // Union por id con lo que ya hay en memoria: una sesión guardada localmente pero
     // todavía no confirmada en el servidor (ej. mala señal) no debe desaparecer por
     // pisar el estado con una lectura vieja del servidor (login, ↻ Sync, volver a la pestaña).
@@ -2841,6 +2847,7 @@ function App() {
           setRoutines(mr);
           setCardioSettings(mergeCardioSettingsFromFirestore(d.cardioSettings));
           setDayPreferences(mergeDayPreferences(d.dayPreferences));
+          setRoutineBlock(d.routineBlock || null);
           // Alinear con el snapshot aplicado. NUNCA poner 0: un snapshot viejo en caché volvería a “ganar” (serverTs>=0).
           lastLocalWriteTsRef.current = serverTs;
           setActiveDay((prev) => (tw.includes(prev) ? prev : getCurrentDayKey(tw)));
@@ -3107,11 +3114,26 @@ function App() {
     [persistPartial]
   );
 
+  const applyBloque4d = useCallback(async () => {
+    setRoutineBlock(BLOQUE_4D_ID);
+    await updateRoutines((prev) => ({ ...prev, ...JSON.parse(JSON.stringify(BLOQUE_4D_ROUTINES)) }));
+    await updateTrainingWeekDays(BLOQUE_4D_DAYS);
+    await persistPartial({ routineBlock: BLOQUE_4D_ID });
+  }, [updateRoutines, updateTrainingWeekDays, persistPartial]);
+
+  // Aplicar el bloque nuevo una sola vez por cuenta, sin depender de tocar la plantilla.
+  // Queda marcado en Firestore (`routineBlock`) para no pisar ediciones posteriores.
+  useEffect(() => {
+    if (autoBlockAppliedRef.current || loading || !routines || trainingWeekDays === null) return;
+    if (routineBlock !== null) return;
+    autoBlockAppliedRef.current = true;
+    void applyBloque4d();
+  }, [loading, routines, trainingWeekDays, routineBlock, applyBloque4d]);
+
   const applyPreset = useCallback(async (presetType) => {
     if (presetType === 'bloque4d') {
       if (!window.confirm('¿Aplicar el "Bloque 4 días"? Reemplaza lunes, martes, jueves y sábado y deja solo esos 4 días como días de entreno. El historial no se toca.')) return;
-      await updateRoutines((prev) => ({ ...prev, ...JSON.parse(JSON.stringify(BLOQUE_4D_ROUTINES)) }));
-      await updateTrainingWeekDays(BLOQUE_4D_DAYS);
+      await applyBloque4d();
       return;
     }
     const labels = { hipertrofia: 'Hipertrofia', fuerza: 'Fuerza', definicion: 'Definición' };
@@ -3119,7 +3141,7 @@ function App() {
     if (!window.confirm(`¿Reemplazar TODA la rutina (todos los días) por la plantilla "${label}"?`)) return;
     const next = buildPresetRoutines(presetType);
     await updateRoutines(next);
-  }, [updateRoutines, updateTrainingWeekDays]);
+  }, [updateRoutines, applyBloque4d]);
 
   const cloneDayTo = useCallback(async (fromDay, toDay) => {
     if (!fromDay || !toDay || fromDay === toDay) return;
