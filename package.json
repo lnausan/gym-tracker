@@ -8,7 +8,7 @@
     "prestart": "npm run build",
     "dev": "node scripts/dev-server.mjs",
     "start": "node scripts/dev-server.mjs",
-    "build": "node scripts/build-css.mjs && node scripts/build-js.mjs"
+    "build": "node scripts/build-css.mjs && node scripts/build-js.mjs && node scripts/stamp-index.mjs"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.27",

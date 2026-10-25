@@ -14,8 +14,8 @@
   <meta name="mobile-web-app-capable" content="yes">
 
   <!-- Sin scripts bloqueantes en head: el body puede pintar el splash de inmediato -->
-  <link rel="preload" href="app.compiled.css" as="style">
-  <link rel="preload" href="app.compiled.js" as="script">
+  <link rel="preload" href="app.compiled.css?v=1f86c2dfba" as="style">
+  <link rel="preload" href="app.compiled.js?v=26924b02f1" as="script">
   <style>
     #boot-splash {
       position: fixed; inset: 0; z-index: 99999;
@@ -34,7 +34,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
 
   <!-- CSS: npm run build → app.compiled.css -->
-  <link rel="stylesheet" href="app.compiled.css">
+  <link rel="stylesheet" href="app.compiled.css?v=1f86c2dfba">
 </head>
 <body>
   <div id="root">
@@ -60,6 +60,6 @@
     };
   </script>
   <!-- React va empaquetado en app.compiled.js (menos peticiones a unpkg; mejor en Vercel) -->
-  <script src="app.compiled.js"></script>
+  <script src="app.compiled.js?v=26924b02f1"></script>
 </body>
 </html>
